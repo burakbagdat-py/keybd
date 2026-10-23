@@ -21,6 +21,31 @@ object Calc {
         return e
     }
 
+    private val timesX = Regex("(?<=[\\d)])\\s*[xX]\\s*(?=[\\d(])")
+
+    /**
+     * Yazarken canlı sonuç: metnin sonunda "1x1", "12/4", "7-2", "3+4*2" gibi bir işlem varsa
+     * sonucunu döndürür. Tarih (12/05/2026), telefon (0555-123-4567) gibi girdileri atlar.
+     */
+    fun live(textBefore: String): String? {
+        if (textBefore.isEmpty()) return null
+        val norm = timesX.replace(textBefore, "×")
+        val last = norm.last()
+        if (!last.isDigit() && last != ')' && last != '%') return null
+        val e = trailingExpression(norm)?.trim() ?: return null
+        if (e.count { it.isDigit() } > 15) return null
+        val strong = e.count { it in "+*×÷%^" }
+        val minus = e.count { it == '-' || it == '−' }
+        val slash = e.count { it == '/' }
+        if (strong == 0) {
+            if (minus + slash >= 2) return null                       // tarih / telefon
+            if (Regex("\\d{5,}").containsMatchIn(e)) return null     // uzun numaralar
+            if (minus == 1 && e.trimStart().startsWith("-")) return null
+        }
+        if (e.startsWith("0") && e.length > 1 && e[1].isDigit()) return null
+        return compute(e)
+    }
+
     /** İfadeyi hesaplar; geçersizse null. */
     fun eval(expr: String): Double? {
         val p = Parser(normalize(expr))

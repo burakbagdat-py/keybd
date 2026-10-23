@@ -52,7 +52,7 @@ android {
         buildConfig = true
     }
     androidResources {
-        noCompress += "txt"
+        noCompress += listOf("txt", "wav")
     }
 }
 

@@ -54,4 +54,41 @@ class FeaturesTest {
         assertTrue(es.search("zzqxw").isEmpty())
         assertTrue(es.search("").isEmpty())
     }
+
+    @Test fun liveMath() {
+        assertEquals("1", Calc.live("1x1"))
+        assertEquals("12", Calc.live("3x4"))
+        assertEquals("12", Calc.live("3 X 4"))
+        assertEquals("1", Calc.live("1/1"))
+        assertEquals("0", Calc.live("1-1"))
+        assertEquals("11", Calc.live("Toplam 3+4*2"))
+        assertEquals("2.5", Calc.live("5/2"))
+        assertEquals("3", Calc.live("1,5x2"))
+        assertNull(Calc.live("1x"))
+        assertNull(Calc.live("12/05/2026"))      // tarih
+        assertNull(Calc.live("0555-123-4567"))   // telefon
+        assertNull(Calc.live("2024-01-01"))
+        assertNull(Calc.live("-5"))
+        assertNull(Calc.live("box"))
+        assertNull(Calc.live("2026"))
+    }
+
+    @Test fun wheelWeights() {
+        val st = Panels.WheelState(mutableListOf("A", "B", "C"), ArrayList(), "")
+        st.equalize()
+        assertEquals(100, st.weights.sum())
+        assertEquals(listOf(34, 33, 33), st.weights)
+        st.change(0, 20)
+        assertEquals(100, st.weights.sum())
+        assertEquals(54, st.weights[0])
+        repeat(30) { st.change(1, -5) }
+        assertEquals(100, st.weights.sum())
+        assertEquals(1, st.weights[1])
+        st.add("D")
+        assertEquals(4, st.options.size)
+        assertEquals(100, st.weights.sum())
+        st.removeAt(0)
+        assertEquals(100, st.weights.sum())
+        assertEquals(listOf("B", "C", "D"), st.options)
+    }
 }

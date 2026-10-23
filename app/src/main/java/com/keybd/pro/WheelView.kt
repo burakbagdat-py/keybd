@@ -27,6 +27,21 @@ class WheelView(ctx: Context, private val theme: KbTheme) : View(ctx) {
             winner = -1
             invalidate()
         }
+    private var weights: List<Int> = emptyList()
+
+    /** Seçenekler ve yüzde ağırlıkları: dilim büyüklüğü = kazanma olasılığı. */
+    fun setData(o: List<String>, w: List<Int>) {
+        weights = w
+        options = o
+    }
+
+    private fun sweepOf(i: Int): Float {
+        val n = options.size
+        if (weights.size != n) return 360f / n
+        val sum = weights.sum().coerceAtLeast(1)
+        return 360f * weights[i] / sum
+    }
+
     var onResult: ((String) -> Unit)? = null
     var onTick: (() -> Unit)? = null
     var winner = -1
@@ -68,9 +83,11 @@ class WheelView(ctx: Context, private val theme: KbTheme) : View(ctx) {
         val cy = height / 2f + dp(4f)
         oval.set(cx - r, cy - r, cx + r, cy + r)
         if (n == 0) return
-        val sweep = 360f / n
+        var acc = 0f
         for (i in 0 until n) {
-            val start = -90f + angle + i * sweep
+            val sweep = sweepOf(i)
+            val start = -90f + angle + acc
+            acc += sweep
             val win = if (theme.style == KbTheme.STYLE_SYMBIOTE) 0xFFB0B0B0.toInt() else theme.accent
             val fill = if (i == winner && !spinning) win else segColor(i)
             p.style = Paint.Style.FILL
@@ -130,7 +147,12 @@ class WheelView(ctx: Context, private val theme: KbTheme) : View(ctx) {
         val n = options.size
         if (n == 0) return -1
         val rel = ((-angle) % 360f + 360f) % 360f
-        return (rel / (360f / n)).toInt().coerceIn(0, n - 1)
+        var acc = 0f
+        for (i in 0 until n) {
+            acc += sweepOf(i)
+            if (rel < acc) return i
+        }
+        return n - 1
     }
 
     fun spin() {

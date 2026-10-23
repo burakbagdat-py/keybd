@@ -81,9 +81,18 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
     private var lastEdit = 0L
     private var tapWord: Triple<Int, Int, String>? = null
 
-    // Emoji arama
-    private var emojiQuery: StringBuilder? = null
+    // Yazarak giriş modu: yazılanlar uygulamaya değil şeritteki kutuya gider
+    enum class Capture { EMOJI, ARCHIVE, WHEEL }
+    private var capture: Capture? = null
+    private val captureBuf = StringBuilder()
     private var emojiSearch: EmojiSearch? = null
+    /** Cihazın çizebildiği emojiler (arama sonuçlarında kutu görünmesin). */
+    private var supportedEmoji: Set<String> = emptySet()
+    private var emojiGrid: android.widget.GridView? = null
+
+    private lateinit var archive: Archive
+    private var wheelState: Panels.WheelState? = null
+    private var resizing = false
 
     lateinit var stats: Stats
         private set
@@ -103,6 +112,7 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         else @Suppress("DEPRECATION") (getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)
     }
     private val audio: AudioManager? by lazy { getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
+    private val sounds by lazy { SoundPack(this) }
 
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
         try {
@@ -125,6 +135,7 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         prefs = Prefs(this)
         clip = ClipHistory(prefs)
         stats = Stats(prefs.sp)
+        archive = Archive(prefs)
         prefs.sp.registerOnSharedPreferenceChangeListener(this)
         alphaId = prefs.currentLayout
         ensureDict(Layouts.lang(alphaId))
@@ -143,6 +154,7 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         voice?.stop()
         dicts.values.forEach { it.save() }
         stats.flush()
+        sounds.release()
         super.onDestroy()
     }
 
@@ -197,9 +209,26 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
             if (bmp != null) root.background = CropDrawable(bmp, prefs.sp.getInt(Themes.CUSTOM_BG, android.graphics.Color.BLACK),
                 prefs.sp.getInt(Themes.CUSTOM_DIM, 30) * 255 / 100)
         }
-        val s = SuggestionStrip(this, t)
+        val stripH = if (prefs.compact) minOf(prefs.stripHeight, 36) else prefs.stripHeight
+        val sideTools = prefs.toolbarPos != 0
+        val s = SuggestionStrip(this, t, sideTools, stripH)
         strip = s
-        root.addView(s, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpi(44f)))
+        val collapsed = prefs.stripCollapsed
+        root.addView(s, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpi(if (collapsed) 18f else stripH.toFloat())))
+        if (collapsed) s.setCollapsed(true)
+
+        // Emoji arama sonuçları: klavyenin üstünde büyük ızgara
+        val grid = android.widget.GridView(this).apply {
+            numColumns = android.widget.GridView.AUTO_FIT
+            columnWidth = dpi(46f)
+            stretchMode = android.widget.GridView.STRETCH_COLUMN_WIDTH
+            isVerticalScrollBarEnabled = false
+            selector = roundRect(withAlpha(t.text, 30), dp(8f))
+            setBackgroundColor(t.bg)
+            visibility = View.GONE
+        }
+        emojiGrid = grid
+        root.addView(grid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpi(150f)))
         s.setToolActive("incognito", prefs.incognito)
         s.setToolActive("font", fontStyle != 0)
         s.setToolActive("onehand", prefs.oneHand != 0)
@@ -211,9 +240,14 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         kbRow = row
         val oh = prefs.oneHand
+        if (prefs.toolbarPos == 1) row.addView(toolSideBar(t, stripH), LinearLayout.LayoutParams(dpi(stripH.toFloat()), ViewGroup.LayoutParams.MATCH_PARENT))
         if (oh == 2) row.addView(oneHandSide(t), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0.16f))
         row.addView(kv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, if (oh == 0) 1f else 0.84f))
         if (oh == 1) row.addView(oneHandSide(t), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0.16f))
+        if (prefs.toolbarPos == 2) row.addView(toolSideBar(t, stripH), LinearLayout.LayoutParams(dpi(stripH.toFloat()), ViewGroup.LayoutParams.MATCH_PARENT))
+        // Klavye genişliği (%): kenarlardan boşluk
+        val wpad = (resources.displayMetrics.widthPixels * (100 - prefs.kbWidth) / 200f).toInt()
+        row.setPadding(wpad, 0, wpad, 0)
 
         val c = FrameLayout(this)
         content = c
@@ -228,14 +262,36 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
             }
         }
         kv.kb = buildLayout()
+        // Ses paketini önceden yükle (ilk tuşta ses kaçmasın)
+        if (prefs.sound && prefs.soundPack != SoundPack.SYSTEM) sounds.load(prefs.soundPack)
+        if (resizing) s.showResize()
+        if (capture != null) root.post { refreshCapture() }
         return root
+    }
+
+    /** Araç çubuğu yan menüdeyken klavyenin solunda/sağında dikey düğmeler. */
+    private fun toolSideBar(t: KbTheme, stripH: Int): View {
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(t.strip)
+        }
+        for (tool in Tools.all) {
+            if (tool.id == "collapse") continue
+            col.addView(SuggestionStrip.toolButton(this, t, tool, stripH.toFloat()),
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpi(stripH * 0.95f)))
+        }
+        return android.widget.ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            setBackgroundColor(t.strip)
+            addView(col)
+        }
     }
 
     private fun applyViewPrefs(kv: KeyboardView, t: KbTheme) {
         kv.theme = t
-        kv.rowHeight = dp(54f) * prefs.heightPercent / 100f
+        kv.rowHeight = dp(54f) * prefs.heightPercent / 100f * (if (prefs.compact) 0.84f else 1f)
         kv.radius = dp(prefs.keyRadius.toFloat())
-        kv.gap = dp(prefs.keyGap.toFloat())
+        kv.gap = dp(prefs.keyGap.toFloat()).let { if (prefs.compact) minOf(it, dp(2.5f)) else it }
         kv.borders = prefs.keyBorders
         kv.showHints = prefs.keyHints
         kv.preview = prefs.keyPreview
@@ -306,7 +362,7 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         selStart = info.initialSelStart
         selEnd = info.initialSelEnd
         tapWord = null
-        if (emojiQuery != null) stopEmojiSearch()
+        if (capture != null) endCapture()
         clearRestore()
         closePanel()
 
@@ -325,7 +381,8 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         stopVoice()
-        if (emojiQuery != null) stopEmojiSearch()
+        if (capture != null) endCapture()
+        if (resizing) stopResize()
         closePanel()
         stats.flush()
     }
@@ -458,7 +515,10 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
             } catch (_: Exception) {
             }
         }
-        if (prefs.sound) {
+        if (prefs.sound && prefs.soundPack != SoundPack.SYSTEM) {
+            sounds.load(prefs.soundPack)
+            sounds.play(SoundPack.kindOf(k), prefs.soundVolume / 100f)
+        } else if (prefs.sound) {
             val fx = when (k?.type) {
                 KeyType.DELETE -> AudioManager.FX_KEYPRESS_DELETE
                 KeyType.SPACE -> AudioManager.FX_KEYPRESS_SPACEBAR
@@ -480,21 +540,21 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         return if (u.length == 1) u else s
     }
 
-    fun glideAllowed() = page == Page.ALPHA && fontStyle == 0 && allowSuggest && dict() != null && emojiQuery == null
+    fun glideAllowed() = page == Page.ALPHA && fontStyle == 0 && allowSuggest && dict() != null && capture == null
 
     fun onKey(k: Key) {
-        val q = emojiQuery
-        if (q != null) {
-            // Emoji arama modu: yazılanlar uygulamaya değil arama kutusuna gider
+        val cap = capture
+        if (cap != null) {
+            // Yazarak giriş modu: yazılanlar uygulamaya değil şeritteki kutuya gider
             when (k.type) {
                 KeyType.CHAR, KeyType.TEXT -> onText(k.output)
-                KeyType.SPACE -> { if (q.isNotEmpty() && q.last() != ' ') q.append(' '); refreshEmojiSearch() }
-                KeyType.DELETE -> handleDelete(0)
-                KeyType.ENTER -> {
-                    emojiSearch?.search(q.toString())?.firstOrNull()?.let { commitEmoji(it) }
-                    stopEmojiSearch()
+                KeyType.SPACE -> {
+                    if (cap != Capture.EMOJI || (captureBuf.isNotEmpty() && captureBuf.last() != ' ')) captureBuf.append(' ')
+                    refreshCapture()
                 }
-                KeyType.EMOJI -> { stopEmojiSearch(); showEmojiPanel() }
+                KeyType.DELETE -> handleDelete(0)
+                KeyType.ENTER -> confirmCapture()
+                KeyType.EMOJI -> { endCapture(); showEmojiPanel() }
                 KeyType.SHIFT -> handleShift()
                 KeyType.TO_SYMBOLS -> setPage(Page.SYM)
                 KeyType.TO_SYMBOLS2 -> setPage(Page.SYM2)
@@ -523,12 +583,12 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         val ic = currentInputConnection ?: return
         lastAutoCorrect = null
         if (s.isEmpty()) return
-        emojiQuery?.let { q ->
-            if (s.codePointCount(0, s.length) == 1 && isWordChar(s.codePointAt(0))) {
-                q.append(s.lowercase(Layouts.locale(alphaId)))
-                refreshEmojiSearch()
-            }
+        capture?.let { c ->
+            if (c == Capture.EMOJI) {
+                if (s.codePointCount(0, s.length) == 1 && isWordChar(s.codePointAt(0))) captureBuf.append(s.lowercase(Layouts.locale(alphaId)))
+            } else captureBuf.append(applyCase(s))
             afterChar()
+            refreshCapture()
             return
         }
         clearRestore()
@@ -629,6 +689,12 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
 
     private fun updateShift() {
         if (shift == 2 || manualShift) return
+        capture?.let { c ->
+            // Emoji aramada küçük harf; arşiv/çark girişinde yalnızca ilk harf büyük
+            shift = if (c != Capture.EMOJI && captureBuf.isEmpty()) 1 else 0
+            kbView?.shiftState = shift
+            return
+        }
         val kv = kbView ?: return
         var newShift = 0
         if (prefs.autoCap && allowAutoCap && page == Page.ALPHA && composing.isEmpty()) {
@@ -721,8 +787,14 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
 
     private fun handleDelete(count: Int) {
         val ic = currentInputConnection ?: return
-        emojiQuery?.let { q ->
-            if (q.isEmpty()) stopEmojiSearch() else { q.setLength(q.length - 1); refreshEmojiSearch() }
+        capture?.let { c ->
+            if (captureBuf.isEmpty()) {
+                if (c == Capture.EMOJI) cancelCapture()
+            } else {
+                val cp = captureBuf.codePointBefore(captureBuf.length)
+                captureBuf.setLength(captureBuf.length - Character.charCount(cp))
+                refreshCapture()
+            }
             return
         }
         justPicked = false
@@ -808,7 +880,7 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
 
     fun deleteWordBack() {
         val ic = currentInputConnection ?: return
-        if (emojiQuery != null) { handleDelete(0); return }
+        if (capture != null) { handleDelete(0); return }
         if (composing.isNotEmpty()) {
             noteDeleted(composing.toString())
             composing.clear()
@@ -892,8 +964,21 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         }
     }
 
+    /** İmlecin önündeki "1x1", "12/4", "7-2" gibi ifadenin sonucu (yoksa null). */
+    private fun liveCalc(): String? {
+        if (isPassword || fontStyle != 0 || capture != null) return null
+        val b = currentInputConnection?.getTextBeforeCursor(60, 0)?.toString() ?: return null
+        return Calc.live(b)
+    }
+
     private fun updateSuggestions() {
         val s = strip ?: return
+        val live = liveCalc()
+        if (live != null) {
+            chip = Chip(CHIP_CALC, "= $live", "=$live")
+            s.showChip("= $live", "=$live")
+            return
+        } else if (chip?.kind == CHIP_CALC && chip?.value?.startsWith("=") == true) chip = null
         if (composing.isEmpty()) {
             showPredictions()
             return
@@ -966,7 +1051,8 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
     fun pickSuggestion(word: String) {
         val ic = currentInputConnection ?: return
         val c = chip
-        if (c != null && composing.isEmpty() && word == c.value) {
+        if (c != null && word == c.value && (composing.isEmpty() || c.kind == CHIP_CALC)) {
+            if (composing.isNotEmpty()) commitComposing(false)
             chip = null
             when (c.kind) {
                 CHIP_WHEEL -> {
@@ -1175,15 +1261,87 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         }
         if (opts.size < 2) {
             opts = listOf("Evet", "Hayır")
-            note = "Seçenek bulunamadı. Seçenekleri virgülle, \"veya\" ile ya da alt alta yazıp seçin veya kopyalayın."
+            note = "Seçenek bulunamadı: ＋ Ekle ile yazın ya da seçenekleri seçip/kopyalayıp tekrar açın."
         }
-        theme?.let { showPanel(Panels.wheel(this, it, opts, note)) }
+        openWheel(opts, note)
     }
 
     private fun showWheelFor(text: String, note: String) {
         val opts = WheelOptions.parse(text)
         if (opts.size < 2) return showWheelPanel()
-        theme?.let { showPanel(Panels.wheel(this, it, opts, note)) }
+        openWheel(opts, note)
+    }
+
+    private fun openWheel(opts: List<String>, note: String) {
+        val st = Panels.WheelState(opts.toMutableList(), ArrayList(), note).also { it.equalize() }
+        wheelState = st
+        theme?.let { showPanel(Panels.wheel(this, it, st)) }
+    }
+
+    private fun reopenWheel() {
+        val st = wheelState ?: return
+        theme?.let { showPanel(Panels.wheel(this, it, st)) }
+    }
+
+    // ====================================================================== arşiv
+
+    fun showArchivePanel() = theme?.let { showPanel(Panels.archive(this, it, archive)) }
+
+    fun addToArchive(text: String): Boolean {
+        val added = archive.add(text)
+        toast(if (added) "Arşive eklendi 🗂" else "Zaten arşivde, başa alındı")
+        return true
+    }
+
+    fun archiveSelection(): Boolean {
+        val sel = currentInputConnection?.getSelectedText(0)?.toString()
+        if (sel.isNullOrBlank()) { toast("Önce metni seçin"); return false }
+        return addToArchive(sel)
+    }
+
+    fun archiveClipboard(): Boolean {
+        val c = latestClipText()
+        if (c.isNullOrBlank()) { toast("Pano boş"); return false }
+        return addToArchive(c)
+    }
+
+    fun startArchiveTyping() = startCapture(Capture.ARCHIVE)
+    fun startWheelTyping() = startCapture(Capture.WHEEL)
+
+    // ====================================================================== boyut / menü
+
+    fun startResize() {
+        closePanel()
+        commitComposing(false)
+        resizing = true
+        strip?.showResize()
+        toast("Klavyeyi büyütüp küçültün, bitince ✓")
+    }
+
+    fun resizeStep(key: String, d: Int) {
+        val (min, max) = when (key) {
+            Prefs.HEIGHT -> 60 to 150
+            Prefs.KB_WIDTH -> 50 to 100
+            else -> 60 to 160
+        }
+        val v = (prefs.sp.getInt(key, 100) + d).coerceIn(min, max)
+        prefs.sp.edit().putInt(key, v).apply()
+        keyFeedback(null)
+    }
+
+    fun resizeReset() {
+        prefs.sp.edit().putInt(Prefs.HEIGHT, 100).putInt(Prefs.KB_WIDTH, 100).putInt(Prefs.FONT_SCALE, 100).apply()
+    }
+
+    fun stopResize() {
+        resizing = false
+        strip?.endBusy()
+        updateSuggestions()
+    }
+
+    fun setStripCollapsed(c: Boolean) {
+        prefs.stripCollapsed = c
+        if (c) toast("Menü gizlendi — açmak için üstteki ▴ çizgisine dokunun")
     }
 
     private fun latestClipText(): String? {
@@ -1214,27 +1372,110 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
 
     // ====================================================================== emoji arama
 
-    fun startEmojiSearch() {
+    fun startEmojiSearch() = startCapture(Capture.EMOJI)
+
+    private fun startCapture(c: Capture) {
         closePanel()
         commitComposing(false)
-        if (emojiSearch == null) {
-            val flags = EmojiData.categories.flatMap { it.items }.filter { EmojiSearch.countryCode(it) != null }
+        if (resizing) stopResize()
+        if (c == Capture.EMOJI && emojiSearch == null) {
+            val all = EmojiData.categories(this).flatMap { it.items }
+            supportedEmoji = all.toHashSet()
+            val flags = all.filter { EmojiSearch.countryCode(it) != null }
             emojiSearch = EmojiSearch({ assets.open("emoji_kw.txt") }, flags)
         }
-        emojiQuery = StringBuilder()
+        capture = c
+        captureBuf.setLength(0)
         if (page != Page.ALPHA) setPage(Page.ALPHA)
-        refreshEmojiSearch()
+        manualShift = false
+        shift = if (c == Capture.EMOJI) 0 else 1
+        kbView?.shiftState = shift
+        refreshCapture()
     }
 
-    private fun refreshEmojiSearch() {
-        val q = emojiQuery ?: return
-        val res = if (q.isBlank()) prefs.recentEmoji.take(20) else emojiSearch?.search(q.toString()) ?: emptyList()
-        strip?.showEmojiSearch(q.toString(), res)
+    private fun refreshCapture() {
+        val c = capture ?: return
+        val s = strip ?: return
+        val q = captureBuf.toString()
+        when (c) {
+            Capture.EMOJI -> {
+                s.showCapture("🔍 Emoji ara… (klavyeyle yaz)", if (q.isEmpty()) "" else "🔍 $q", "Tümü")
+                showEmojiGrid(if (q.isBlank()) prefs.recentEmoji.take(60) else searchEmoji(q, 150))
+            }
+            Capture.ARCHIVE -> s.showCapture("🗂 Arşive eklenecek metni yazın…", q, "✓ Ekle")
+            Capture.WHEEL -> s.showCapture("🎡 Çarka eklenecek seçeneği yazın…", q, "✓ Ekle")
+        }
     }
 
-    fun stopEmojiSearch() {
-        emojiQuery = null
-        strip?.hideEmojiSearch()
+    private fun searchEmoji(q: String, limit: Int): List<String> =
+        (emojiSearch?.search(q, limit * 2) ?: emptyList()).filter { it in supportedEmoji }.take(limit)
+
+    private fun showEmojiGrid(items: List<String>) {
+        val g = emojiGrid ?: return
+        val t = theme ?: return
+        g.visibility = View.VISIBLE
+        g.adapter = object : android.widget.BaseAdapter() {
+            override fun getCount() = items.size
+            override fun getItem(p: Int) = items[p]
+            override fun getItemId(p: Int) = p.toLong()
+            override fun getView(p: Int, cv: View?, parent: ViewGroup?): View {
+                val tv = (cv as? android.widget.TextView) ?: android.widget.TextView(this@KeybdService).apply {
+                    gravity = android.view.Gravity.CENTER
+                    textSize = 26f
+                    setTextColor(t.text)
+                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpi(48f))
+                }
+                tv.text = items[p]
+                return tv
+            }
+        }
+        g.setOnItemClickListener { _, _, p, _ -> commitEmoji(items[p]) }
+    }
+
+    /** Enter / ✓: girişi tamamla. */
+    fun confirmCapture() {
+        val c = capture ?: return
+        val q = captureBuf.toString().trim()
+        when (c) {
+            Capture.EMOJI -> {
+                val res = if (q.isBlank()) null else searchEmoji(q, 500)
+                endCapture()
+                theme?.let { showPanel(Panels.emoji(this, it, res, q)) }
+            }
+            Capture.ARCHIVE -> {
+                if (q.isNotEmpty()) addToArchive(q)
+                endCapture()
+                showArchivePanel()
+            }
+            Capture.WHEEL -> {
+                val st = wheelState
+                if (q.isNotEmpty() && st != null) {
+                    if (st.options.any { it.equals(q, ignoreCase = true) }) toast("Bu seçenek zaten var")
+                    else if (st.options.size >= 16) toast("En fazla 16 seçenek")
+                    else st.add(q)
+                }
+                endCapture()
+                reopenWheel()
+            }
+        }
+    }
+
+    /** ✕: girişi iptal et, geldiği panele dön. */
+    fun cancelCapture() {
+        val c = capture
+        endCapture()
+        when (c) {
+            Capture.ARCHIVE -> showArchivePanel()
+            Capture.WHEEL -> reopenWheel()
+            else -> {}
+        }
+    }
+
+    private fun endCapture() {
+        capture = null
+        captureBuf.setLength(0)
+        emojiGrid?.visibility = View.GONE
+        strip?.endBusy()
         updateShift()
         updateSuggestions()
     }
@@ -1279,7 +1520,7 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
     /** İmleç bir kelimenin içine/sonuna taşındıysa o kelime için düzeltmeleri gösterir. */
     private fun checkTapWord(pos: Int) {
         tapWord = null
-        if (!useComposing() || panel != null || emojiQuery != null || pos < 0) return
+        if (!useComposing() || panel != null || capture != null || pos < 0) return
         val ic = currentInputConnection ?: return
         val d = dict() ?: return
         val b = ic.getTextBeforeCursor(40, 0)?.toString() ?: return

@@ -52,6 +52,8 @@ test edip derler, sürüm numarasını artırır (1.N) ve
   düzeltmeleri şeritte çıkar; seçince kelime değişir
 - **Satır içi hesap makinesi** — `125*4=` yazınca şeritte `= 500` çıkar, dokununca eklenir
   (`+ − × ÷ % ^` ve parantez; `1,5+2` gibi virgüllü sayılar)
+- **Canlı matematik** — `=` yazmana gerek yok: `1x1`, `12/4`, `7-2` yazarken sonuç şeritte belirir
+  (tarih ve telefon numaraları gibi girdiler hesaplanmaz)
 
 ### Hareketler
 - **Boşluk tuşunda kaydırma** → imleci sağa/sola taşı
@@ -63,12 +65,19 @@ test edip derler, sürüm numarasını artırır (1.N) ve
 
 ### Araç çubuğu (⋯)
 - 😀 **Emoji paneli** — 11 kategori, son kullanılanlar, **kaomoji** ( ͡° ͜ʖ ͡°) ve özel simgeler
-- 🔍 **Emoji arama** — klavyeden yazarak ara: `kalp` → ❤️, `pizza` → 🍕, `türkiye` → 🇹🇷
-  (1.300+ emoji, Türkçe ve İngilizce anahtar kelimeler)
+- 🔍 **Emoji arama** — klavyeden yazarak ara: `kalp` → ❤️, `pizza` → 🍕, `türkiye` → 🇹🇷;
+  sonuçlar klavyenin üstünde büyük ızgarada, **Enter / Tümü** ile tam ekran emoji panelinde
+- **Tüm güncel emojiler (Unicode Emoji 18.0)** — iPhone'daki emoji setinin aynısı; emojiye uzun
+  basınca **ten rengi** seçimi. Telefonunun yazı tipinin çizemediği çok yeni emojiler gizlenir
+- 🗂 **Arşiv** — sık kullandığın metinleri (adres, IBAN, hazır cevaplar…) sakla: seçili metni,
+  panodakini ya da ✎ ile yazarak ekle; dokununca yapıştır. Pano panelinde her öğede 🗂 düğmesi
 - 🧮 **Hesap makinesi paneli** — sonucu tek dokunuşla metne ekle
 - 🎡 **Karar çarkı** — seçtiğin veya kopyaladığın metindeki seçeneklerden çark oluşturur
   (`pizza mı burger mi?`, `Sinema, tiyatro veya konser`, alt alta liste…), çevir ve sonucu
-  sohbete gönder. Metin seçince şeritte **🎡 Çark yap** düğmesi de çıkar
+  sohbete gönder. Metin seçince şeritte **🎡 Çark yap** düğmesi de çıkar.
+  **＋ Ekle** ile elle seçenek yaz, her seçeneğin **% kazanma oranını** −/+ ile ayarla
+  (dilimler orana göre büyür), ⚖ ile eşitle
+- ⇕ **Canlı boyutlandırma** — yazarken klavyenin yüksekliğini, genişliğini ve yazı boyutunu −/+ ile ayarla
 - 📋 **Pano geçmişi** — son 40 kopya, **sabitleme**, son kopyalananı tek dokunuşla yapıştırma
 - ✥ **Metin düzenleme paneli** — ok tuşları, seçim modu, tümünü seç, kopyala/kes/yapıştır, geri al/yinele
 - 𝔸 **Süslü yazı stilleri** — 𝐊𝐚𝐥ı𝐧, 𝐼𝑡𝑎𝑙𝑖𝑘, 𝓔𝓵 𝔂𝓪𝔃ı𝓼ı, 𝕲𝖔𝖙𝖎𝖐, 𝔻𝕠𝕦𝕓𝕝𝕖, Ⓓⓐⓘⓡⓔ, 🅺🅰🆁🅴, Ｇｅｎｉş, ᴋüçüᴋ, s̶t̶r̶i̶k̶e̶ …
@@ -84,7 +93,11 @@ test edip derler, sürüm numarasını artırır (1.N) ve
   dokunaçlar, her dokunuşta saçılan simbiyot dikenleri
 - 🎨 **Kendi temanı oluştur** — renkleri seç (hazır takımlar, renk tekerleği, HEX), istersen
   arka plana kendi fotoğrafını koy; tuş saydamlığı ve karartma ayarı, canlı önizleme
-- Ayarlanabilir klavye yüksekliği, yazı boyutu, tuş köşe yuvarlaklığı ve tuş aralığı
+- Ayarlanabilir klavye yüksekliği **ve genişliği** (tuş boyu/eni), yazı boyutu, tuş köşe yuvarlaklığı ve aralığı
+- **Kompakt mod** — daha alçak tuşlar, dar aralıklar, ince üst menü
+- **Üst menü** — açılır/kapanır (▾ ile ince çizgiye iner), yüksekliği ayarlanır, istersen
+  **sol veya sağ yan menüye** taşınır
+- Sağ alttaki tuş her alanda sade bir **Enter oku**; mikrofon düğmesi emoji değil düz simge
 - İsteğe bağlı sayı satırı, tuş ipuçları, tuş önizleme balonu, çerçevesiz görünüm
 - Alana göre akıllı düzen: e-posta alanında `@`, adres alanında `/` ve `.com`,
   sayı/telefon alanlarında sayı tuş takımı, şifre alanlarında öğrenme kapalı + sayı satırı
@@ -97,6 +110,9 @@ test edip derler, sürüm numarasını artırır (1.N) ve
 
 ### Geri bildirim
 - Ayarlanabilir titreşim süresi, tuş sesi ve ses düzeyi
+- 🔊 **Ses paketleri** (seçerken dinlenebilir): Mekanik (tıkırtılı mavi switch), Mekanik (tok/derin),
+  Daktilo (satır sonunda zil 🔔), Yumuşak, Baloncuk, Piyano notaları ve **Komik 🤡**
+  (boing, ördek, düdük, korna… her tuşta farklı). Sesler tamamen sentezlenmiştir (`tools/gen_sounds.py`)
 - Ayarlanabilir uzun basma süresi
 
 ## 🛠️ Kaynak koddan derleme
@@ -128,6 +144,9 @@ derler ve yeni bir sürüm olarak yayınlar; uygulamadaki güncelleyici bu sür�
 | `EmojiSearch.kt` | Emoji arama (CLDR anahtar kelimeleri) |
 | `ThemeEditor.kt` | Kendi temanı oluşturma ve renk seçici |
 | `Stats.kt` / `Backup.kt` | Yazma istatistikleri, yedekleme ve geri yükleme |
+| `SoundPack.kt` | Tuş sesi paketleri |
+| `Archive.kt` / `Tools.kt` | Arşiv ve araç çubuğu düğmeleri |
+| `tools/gen_sounds.py`, `tools/gen_emoji.py` | Ses ve emoji varlıklarını üreten betikler |
 
 Sözlük verileri [hermitdave/FrequencyWords](https://github.com/hermitdave/FrequencyWords)
 (CC BY-SA 4.0), emoji anahtar kelimeleri [Unicode CLDR](https://github.com/unicode-org/cldr-json)

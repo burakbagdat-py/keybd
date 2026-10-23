@@ -298,7 +298,19 @@ class KeyboardView(ctx: Context, private val svc: KeybdService) : View(ctx) {
         else -> k.label
     }
 
+    private val enterIcon by lazy { context.getDrawable(R.drawable.ic_enter)!!.mutate() }
+
     private fun drawLabel(canvas: Canvas, k: Key, pressed: Boolean = false) {
+        if (k.type == KeyType.ENTER) {
+            // Her alanda aynı sade Enter oku (arama/gönder emojisi yok)
+            val sz = (dp(24f) * fontScale).toInt().coerceAtMost(((k.bottom - k.top) * 0.6f).toInt())
+            val l = (k.cx - sz / 2f).toInt()
+            val t = (k.cy - sz / 2f).toInt()
+            enterIcon.setBounds(l, t, l + sz, t + sz)
+            enterIcon.setTint(if (pressed && sym) theme.bg else theme.accentText)
+            enterIcon.draw(canvas)
+            return
+        }
         val label = labelFor(k)
         if (label.isEmpty()) return
         val single = label.codePointCount(0, label.length) == 1

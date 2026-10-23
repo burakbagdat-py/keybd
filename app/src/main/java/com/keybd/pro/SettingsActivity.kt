@@ -312,7 +312,9 @@ class SettingsActivity : Activity() {
             ((themeRow.getChildAt(0) as LinearLayout).getChildAt(1) as TextView).text = "Venom Simbiyot"
             toast("Simbiyot bağlandı 🕷️")
         }
-        slider("Klavye yüksekliği", Prefs.HEIGHT, 70, 140, 100) { "%$it" }
+        switch("Kompakt mod", "Daha alçak tuşlar, dar aralıklar ve ince üst menü", Prefs.COMPACT, false)
+        slider("Klavye yüksekliği (tuş boyu)", Prefs.HEIGHT, 60, 150, 100) { "%$it" }
+        slider("Klavye genişliği (tuş eni)", Prefs.KB_WIDTH, 50, 100, 100) { "%$it" }
         slider("Yazı boyutu", Prefs.FONT_SCALE, 70, 140, 100) { "%$it" }
         slider("Tuş köşe yuvarlaklığı", Prefs.RADIUS, 0, 24, 8) { "${it}dp" }
         slider("Tuş aralığı", Prefs.GAP, 0, 10, 4) { "${it}dp" }
@@ -321,6 +323,26 @@ class SettingsActivity : Activity() {
         switch("Tuş ipuçları", "Uzun basınca çıkan rakamı tuş köşesinde göster", Prefs.HINTS, true)
         switch("Basınca büyüt", "Basılan harfi balon içinde göster", Prefs.PREVIEW, true)
         switch("Emoji tuşu", "Alt satırda hızlı emoji tuşu", Prefs.EMOJI_KEY, true)
+
+        header("ÜST MENÜ")
+        val posNames = arrayOf("Üstte (şerit)", "Solda (yan menü)", "Sağda (yan menü)")
+        val posRow = action("Araç çubuğu konumu", posNames[prefs.toolbarPos.coerceIn(0, 2)]) {}
+        posRow.setOnClickListener {
+            AlertDialog.Builder(this).setTitle("Araç çubuğu konumu")
+                .setSingleChoiceItems(posNames, prefs.toolbarPos.coerceIn(0, 2)) { d, w ->
+                    prefs.sp.edit().putInt(Prefs.TOOLBAR_POS, w).apply()
+                    ((posRow.getChildAt(0) as LinearLayout).getChildAt(1) as TextView).text = posNames[w]
+                    d.dismiss()
+                }.show()
+        }
+        slider("Menü yüksekliği", Prefs.STRIP_HEIGHT, 30, 64, 44) { "${it}dp" }
+        switch("Menüyü gizle", "Üst şeridi ince bir çizgiye indirir; dokununca açılır (araç çubuğunda ▾ ile de gizlenir)", Prefs.STRIP_COLLAPSED, false)
+        add(TextView(this).apply {
+            text = "İpucu: araç çubuğundaki ⇕ düğmesiyle klavyeyi yazarken canlı olarak büyütüp küçültebilirsiniz."
+            textSize = 13f
+            setTextColor(subColor)
+            setPadding(dpi(14f), 0, dpi(14f), dpi(10f))
+        })
 
         // Yazma
         header("AKILLI YAZMA")
@@ -357,6 +379,30 @@ class SettingsActivity : Activity() {
         switch("Tuş titreşimi", null, Prefs.VIBRATE, true)
         slider("Titreşim süresi", Prefs.VIBRATE_MS, 1, 60, 12) { "${it} ms" }
         switch("Tuş sesi", null, Prefs.SOUND, false)
+        val packRow = action("Ses paketi", SoundPack.name(prefs.soundPack)) {}
+        packRow.setOnClickListener {
+            val packs = SoundPack.PACKS
+            val preview = SoundPack(this)
+            AlertDialog.Builder(this).setTitle("Ses paketi (dokununca dinle)")
+                .setSingleChoiceItems(packs.map { it.second }.toTypedArray(), packs.indexOfFirst { it.first == prefs.soundPack }.coerceAtLeast(0)) { _, w ->
+                    val id = packs[w].first
+                    prefs.sp.edit().putString(Prefs.SOUND_PACK, id).putBoolean(Prefs.SOUND, true).apply()
+                    ((packRow.getChildAt(0) as LinearLayout).getChildAt(1) as TextView).text = packs[w].second
+                    if (id != SoundPack.SYSTEM) {
+                        // Yükleme bitince örnek bir dizi çal: tuş, tuş, boşluk, enter
+                        preview.onReady = {
+                            list.post { preview.play(SoundPack.Kind.KEY, 0.8f) }
+                            list.postDelayed({ preview.play(SoundPack.Kind.KEY, 0.8f) }, 170)
+                            list.postDelayed({ preview.play(SoundPack.Kind.SPACE, 0.8f) }, 350)
+                            list.postDelayed({ preview.play(SoundPack.Kind.ENTER, 0.8f) }, 570)
+                        }
+                        preview.load(id)
+                    }
+                }
+                .setPositiveButton("Tamam", null)
+                .setOnDismissListener { list.postDelayed({ preview.release() }, 2500) }
+                .show()
+        }
         slider("Ses düzeyi", Prefs.SOUND_VOL, 0, 100, 40) { "%$it" }
 
         // Pano / gizlilik

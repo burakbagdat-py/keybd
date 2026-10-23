@@ -51,6 +51,15 @@ class Prefs(context: Context) {
     val longPressMs get() = i(LONGPRESS, 300)
 
     val clipHistory get() = b(CLIP, true)
+    val soundPack get() = s(SOUND_PACK, SoundPack.SYSTEM)
+    val compact get() = b(COMPACT, false)
+    val kbWidth get() = i(KB_WIDTH, 100)
+    val stripHeight get() = i(STRIP_HEIGHT, 44)
+    val toolbarPos get() = i(TOOLBAR_POS, 0)
+
+    var stripCollapsed: Boolean
+        get() = b(STRIP_COLLAPSED, false)
+        set(v) = sp.edit().putBoolean(STRIP_COLLAPSED, v).apply()
 
     var oneHand: Int
         get() = i(ONEHAND, 0)
@@ -113,13 +122,21 @@ class Prefs(context: Context) {
         const val RECENT_EMOJI = "recent_emoji"
         const val SHORTCUTS = "shortcuts"
         const val CLIPS = "clips"
+        const val SOUND_PACK = "sound_pack"
+        const val COMPACT = "compact"
+        const val KB_WIDTH = "kb_width"
+        const val STRIP_HEIGHT = "strip_height"
+        const val STRIP_COLLAPSED = "strip_collapsed"
+        const val TOOLBAR_POS = "toolbar_pos"
+        const val ARCHIVE = "archive"
         const val DICT_RESET = "dict_reset"
         const val DICT_RELOAD = "dict_reload"
 
         /** Bu anahtarlar değişince klavye görünümü yeniden kurulur. */
         val VIEW_KEYS = setOf(
             LAYOUTS, THEME, HEIGHT, RADIUS, GAP, BORDERS, NUMROW, HINTS, PREVIEW, FONT_SCALE,
-            EMOJI_KEY, GLIDE, GLIDE_TRAIL, SPACE_CURSOR, DEL_SWIPE, LONGPRESS, ONEHAND, Themes.CUSTOM_VER
+            EMOJI_KEY, GLIDE, GLIDE_TRAIL, SPACE_CURSOR, DEL_SWIPE, LONGPRESS, ONEHAND, Themes.CUSTOM_VER,
+            COMPACT, KB_WIDTH, STRIP_HEIGHT, STRIP_COLLAPSED, TOOLBAR_POS
         )
 
         val DEFAULT_SHORTCUTS = mapOf(
