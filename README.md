@@ -1,22 +1,36 @@
 # ⌨️ Keybd — Gelişmiş Android Klavye
 
 Telefonunuzdaki varsayılan klavyenin yerine kullanabileceğiniz, Türkçe'ye özel olarak
-geliştirilmiş, çok özellikli ve **gizlilik dostu** bir klavye. Uygulamanın internet izni
-yoktur; yazdığınız hiçbir şey cihazınızdan çıkmaz.
+geliştirilmiş, çok özellikli ve **gizlilik dostu** bir klavye. Yazdığınız hiçbir şey
+cihazınızdan çıkmaz: klavye servisi internete hiç bağlanmaz, internet yalnızca ayarlar
+uygulamasındaki güncelleme denetimi için kullanılır.
 
 ## 📲 Kurulum (telefon)
 
-1. [`apk/Keybd.apk`](apk/Keybd.apk) dosyasını telefonunuza indirin
-   (GitHub'da dosyaya girip **Download / İndir** düğmesine basın).
+1. En son sürümün APK'sını indirin:
+   **[Keybd.apk (son sürüm)](https://github.com/burakbagdat-py/keybd/releases/latest/download/Keybd.apk)**
 2. Dosyayı açın. "Bilinmeyen kaynaklardan yükleme" izni sorulursa tarayıcınıza/dosya
    yöneticinize izin verin ve **Yükle**'ye dokunun.
-3. **Keybd** uygulamasını açın:
-   - **1. Etkinleştir** → listeden *Keybd*'yi açın (Android'in standart uyarısını onaylayın).
-   - **2. Seç** → *Keybd*'yi seçin.
+3. **Keybd** uygulamasını açın; kurulum sihirbazı sizi yönlendirir:
+   - **1. Etkinleştir** → listeden *Keybd*'yi açın (Android'in her klavye için gösterdiği
+     standart uyarıyı onaylayın).
+   - Geri döndüğünüzde klavye seçici **otomatik açılır** → *Keybd*'yi seçin. Bitti 🎉
 4. Sesli yazma kullanacaksanız ayarlardan **Mikrofon izni** verin.
 
-> Yeni bir sürümü kurduğunuzda eskisinin üzerine güncellenir, ayarlarınız ve öğrenilen
-> kelimeler korunur (tüm sürümler aynı anahtarla imzalanır).
+## 🔄 Güncellemeler
+
+Keybd kendini güncelleyebilir. Ayarlar uygulaması açıldığında (en fazla 6 saatte bir)
+yeni sürüm olup olmadığına bakar; **Ayarlar → Güncelleme → Güncellemeleri denetle** ile
+elle de denetleyebilirsiniz. *Güncelle*'ye basınca yeni APK indirilir ve Android'in
+yükleyicisi açılır. İlk seferde Android, Keybd'nin uygulama yüklemesine izin vermenizi
+ister.
+
+Güncelleme eskisinin üzerine kurulur: **ayarlarınız, öğrenilen kelimeler, pano geçmişi
+ve klavye seçimi korunur** (tüm sürümler aynı anahtarla imzalanır).
+
+Yeni sürümler otomatik yayınlanır: depoya yapılan her gönderimde GitHub Actions uygulamayı
+test edip derler, sürüm numarasını artırır (1.N) ve
+[Releases](https://github.com/burakbagdat-py/keybd/releases) sayfasında yayınlar.
 
 ## ✨ Özellikler
 
@@ -73,8 +87,8 @@ Gereksinimler: JDK 17+, Android SDK (platform 35).
 ./gradlew assembleRelease       # app/build/outputs/apk/release/app-release.apk
 ```
 
-GitHub'a her gönderimde **Actions** sekmesindeki *APK Derle* iş akışı APK'yı otomatik
-derler ve indirilebilir bir dosya olarak ekler.
+GitHub'a her gönderimde **Actions** sekmesindeki *APK Derle ve Yayınla* iş akışı APK'yı
+derler ve yeni bir sürüm olarak yayınlar; uygulamadaki güncelleyici bu sürümleri okur.
 
 ### Proje yapısı
 
@@ -87,6 +101,7 @@ derler ve indirilebilir bir dosya olarak ekler.
 | `GlideDecoder.kt` | Kaydırarak yazma çözücüsü |
 | `SuggestionStrip.kt` / `Panels.kt` | Öneri şeridi, araç çubuğu, emoji/pano/düzenleme/stil panelleri |
 | `SettingsActivity.kt` | Kurulum sihirbazı ve ayarlar |
+| `Updater.kt` | GitHub sürümlerinden güncelleme denetleme, indirme ve kurma |
 
 Sözlük verileri [hermitdave/FrequencyWords](https://github.com/hermitdave/FrequencyWords)
 (CC BY-SA 4.0) kaynağından türetilmiştir.

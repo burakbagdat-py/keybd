@@ -186,4 +186,10 @@ class EngineTest {
             for (r in l.rows) assertTrue("satır taşıyor", r.keys.sumOf { it.width.toDouble() } <= l.units + 0.01)
         }
     }
+
+    @Test fun updateVersionParsing() {
+        assertEquals(6, Updater.versionCodeOf("v1.5"))
+        assertEquals(43, Updater.versionCodeOf("1.42"))
+        assertNull(Updater.versionCodeOf("v2-beta"))
+    }
 }

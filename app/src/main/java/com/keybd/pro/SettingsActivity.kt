@@ -32,6 +32,12 @@ class SettingsActivity : Activity() {
     private lateinit var list: LinearLayout
     private lateinit var status1: TextView
     private lateinit var status2: TextView
+    private lateinit var btn1: TextView
+    private lateinit var btn2: TextView
+    private lateinit var readyText: TextView
+    private var awaitingPick = false
+    private var updateStatus: TextView? = null
+    private var checking = false
     private val accent = Color.parseColor("#1F6FEB")
     private var textColor = Color.BLACK
     private var subColor = Color.GRAY
@@ -63,6 +69,8 @@ class SettingsActivity : Activity() {
         }
         build()
         if (intent?.getBooleanExtra(EXTRA_MIC, false) == true) requestMic()
+        if (prefs.sp.getBoolean(AUTO_UPDATE, true) &&
+            System.currentTimeMillis() - prefs.sp.getLong(LAST_CHECK, 0) > 6 * 3600_000L) checkUpdate(silent = true)
     }
 
     override fun onResume() {
@@ -192,7 +200,7 @@ class SettingsActivity : Activity() {
             setPadding(dpi(6f), dpi(8f), 0, 0)
         })
         list.addView(TextView(this).apply {
-            text = "Gelişmiş, gizlilik dostu klavye — internet izni yok, her şey cihazında kalır."
+            text = "Gelişmiş, gizlilik dostu klavye — yazdıklarınız asla cihazınızdan çıkmaz."
             textSize = 14f
             setTextColor(subColor)
             setPadding(dpi(6f), dpi(2f), 0, dpi(4f))
@@ -209,13 +217,22 @@ class SettingsActivity : Activity() {
         setup.addView(status1)
         setup.addView(status2)
         val btns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        btns.addView(button("1. Etkinleştir", true) {
-            startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dpi(8f) })
-        btns.addView(button("2. Seç", true) {
-            (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker()
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        btn1 = button("1. Etkinleştir", true) { openEnableSettings() }
+        btns.addView(btn1, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dpi(8f) })
+        btn2 = button("2. Seç", true) {
+            if (!isEnabled()) {
+                toast("Önce 1. adımda Keybd'yi etkinleştirin")
+                openEnableSettings()
+            } else showPicker()
+        }
+        btns.addView(btn2, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         setup.addView(btns)
+        readyText = TextView(this).apply {
+            textSize = 14f
+            setTextColor(subColor)
+            setPadding(0, dpi(10f), 0, 0)
+        }
+        setup.addView(readyText)
         val test = EditText(this).apply {
             hint = "Klavyeyi burada deneyin…"
             setTextColor(textColor)
@@ -309,6 +326,17 @@ class SettingsActivity : Activity() {
         slider("Ses düzeyi", Prefs.SOUND_VOL, 0, 100, 40) { "%$it" }
 
         // Pano / gizlilik
+        header("GÜNCELLEME")
+        val up = rowContainer()
+        val upStatus = TextView(this).apply { text = "Sürüm ${BuildConfig.VERSION_NAME}"; textSize = 13f; setTextColor(subColor) }
+        updateStatus = upStatus
+        val upCol = titleView("Güncellemeleri denetle", null).apply { addView(upStatus) }
+        up.addView(upCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        up.addView(TextView(this).apply { text = "⟳"; textSize = 22f; setTextColor(accent) })
+        up.setOnClickListener { checkUpdate(silent = false) }
+        add(up)
+        switch("Otomatik denetle", "Uygulama açılınca yeni sürüm var mı bak (klavyenin kendisi internete hiç bağlanmaz)", AUTO_UPDATE, true)
+
         header("PANO VE GİZLİLİK")
         switch("Pano geçmişi", "Kopyaladıklarınızı sakla (en fazla ${ClipHistory.MAX}, sabitlenenler hariç)", Prefs.CLIP, true)
         switch("Gizli mod", "Hiçbir şey öğrenilmez, pano kaydedilmez", Prefs.INCOGNITO, false)
@@ -333,7 +361,7 @@ class SettingsActivity : Activity() {
             setPadding(dpi(14f), dpi(12f), dpi(14f), dpi(12f))
         })
         list.addView(TextView(this).apply {
-            text = "Keybd 1.0.0"
+            text = "Keybd ${BuildConfig.VERSION_NAME}"
             textSize = 12f
             gravity = Gravity.CENTER
             setTextColor(subColor)
@@ -341,14 +369,129 @@ class SettingsActivity : Activity() {
         })
     }
 
+    private fun isEnabled(): Boolean {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        return imm.enabledInputMethodList.any { it.packageName == packageName }
+    }
+
+    private fun isSelected(): Boolean {
+        val current = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD) ?: ""
+        return current.startsWith("$packageName/")
+    }
+
+    private fun openEnableSettings() {
+        awaitingPick = true
+        try {
+            startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+        } catch (_: Exception) {
+            startActivity(Intent(Settings.ACTION_SETTINGS))
+        }
+    }
+
+    private fun showPicker() {
+        (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker()
+    }
+
+    /** Kurulum sihirbazı: duruma göre sıradaki adımı öne çıkarır, gerekirse seçiciyi kendisi açar. */
     private fun refreshStatus() {
         if (!::status1.isInitialized) return
-        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-        val enabled = imm.enabledInputMethodList.any { it.packageName == packageName }
-        val current = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD) ?: ""
-        val selected = current.startsWith("$packageName/")
+        val enabled = isEnabled()
+        val selected = isSelected()
         status1.text = (if (enabled) "✅" else "⬜") + "  Keybd etkinleştirildi"
         status2.text = (if (selected) "✅" else "⬜") + "  Keybd varsayılan klavye olarak seçildi"
+        btn1.text = if (enabled) "✓ Etkin" else "1. Etkinleştir"
+        btn1.alpha = if (enabled) 0.45f else 1f
+        btn2.text = if (selected) "✓ Seçili" else "2. Seç"
+        btn2.alpha = if (!enabled || selected) 0.45f else 1f
+        readyText.text = when {
+            !enabled -> "Adım 1: Açılan listede \"Keybd\" anahtarını açın ve uyarıyı onaylayın. (Android her klavye için bu uyarıyı gösterir.)"
+            !selected -> "Adım 2: Çıkan listeden \"Keybd\"i seçin."
+            else -> "🎉 Keybd hazır! Aşağıdaki alana dokunup deneyebilirsiniz. Klavyeyi değiştirmek için 🌐 tuşuna uzun basın."
+        }
+        // Kullanıcı etkinleştirip geri döndüyse seçiciyi otomatik aç.
+        if (enabled && !selected && awaitingPick && hasWindowFocus()) {
+            awaitingPick = false
+            list.postDelayed({ showPicker() }, 300)
+        }
+    }
+
+    // ------------------------------------------------------------------ güncelleme
+
+    private fun checkUpdate(silent: Boolean) {
+        if (checking) return
+        checking = true
+        updateStatus?.text = "Denetleniyor…"
+        Thread {
+            val result = try {
+                Result.success(Updater.fetchLatest())
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+            runOnUiThread {
+                checking = false
+                if (isFinishing) return@runOnUiThread
+                prefs.sp.edit().putLong(LAST_CHECK, System.currentTimeMillis()).apply()
+                val r = result.getOrNull()
+                when {
+                    result.isFailure -> {
+                        updateStatus?.text = "Denetlenemedi (internet bağlantısını kontrol edin)"
+                        if (!silent) toast("Güncelleme denetlenemedi")
+                    }
+                    r == null || r.versionCode <= Updater.currentVersionCode() -> {
+                        updateStatus?.text = "En güncel sürümü kullanıyorsunuz ✓"
+                        if (!silent) toast("Keybd güncel")
+                    }
+                    else -> {
+                        updateStatus?.text = "Yeni sürüm var: ${r.name}"
+                        offerUpdate(r)
+                    }
+                }
+            }
+        }.start()
+    }
+
+    private fun offerUpdate(r: Updater.Release) {
+        val notes = r.notes.ifBlank { "Hata düzeltmeleri ve iyileştirmeler." }.take(1500)
+        AlertDialog.Builder(this)
+            .setTitle("Yeni sürüm: ${r.name}")
+            .setMessage("Kullandığınız: ${BuildConfig.VERSION_NAME}\n\n$notes\n\nAyarlarınız ve öğrenilen kelimeler korunur.")
+            .setPositiveButton("Güncelle") { _, _ -> startUpdate(r) }
+            .setNegativeButton("Sonra", null)
+            .show()
+    }
+
+    private fun startUpdate(r: Updater.Release) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            AlertDialog.Builder(this)
+                .setTitle("İzin gerekli")
+                .setMessage("Keybd'nin kendini güncelleyebilmesi için açılan ekranda \"Bu kaynaktan izin ver\" seçeneğini açın, sonra geri dönüp tekrar Güncelle'ye basın.")
+                .setPositiveButton("Ayarları aç") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:$packageName")))
+                }
+                .setNegativeButton("Vazgeç", null)
+                .show()
+            return
+        }
+        val progress = TextView(this).apply {
+            text = "İndiriliyor… %0"
+            textSize = 16f
+            setTextColor(textColor)
+            setPadding(dpi(24f), dpi(20f), dpi(24f), dpi(8f))
+        }
+        val dlg = AlertDialog.Builder(this).setTitle("Keybd güncelleniyor").setView(progress).setCancelable(false).show()
+        Thread {
+            try {
+                val apk = Updater.download(this, r) { p -> runOnUiThread { progress.text = "İndiriliyor… %$p" } }
+                runOnUiThread { progress.text = "Kuruluyor… Onay ekranı açılacak." }
+                Updater.install(this, apk)
+                runOnUiThread { list.postDelayed({ if (!isFinishing) dlg.dismiss() }, 1500) }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    dlg.dismiss()
+                    toast("Güncelleme başarısız: ${e.message}")
+                }
+            }
+        }.start()
     }
 
     private fun pickTheme(row: LinearLayout) {
@@ -425,5 +568,7 @@ class SettingsActivity : Activity() {
 
     companion object {
         const val EXTRA_MIC = "mic"
+        const val AUTO_UPDATE = "auto_update"
+        const val LAST_CHECK = "last_update_check"
     }
 }

@@ -11,8 +11,11 @@ android {
         applicationId = "com.keybd.pro"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // CI her derlemede numarayı artırır: -PbuildNumber=N → sürüm 1.N (kod N+1)
+        val buildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 0
+        versionCode = buildNumber + 1
+        versionName = "1.$buildNumber"
+        buildConfigField("String", "UPDATE_REPO", "\"burakbagdat-py/keybd\"")
     }
 
     signingConfigs {
@@ -44,6 +47,9 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
+    }
+    buildFeatures {
+        buildConfig = true
     }
     androidResources {
         noCompress += "txt"
