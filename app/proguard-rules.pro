@@ -1,0 +1,2 @@
+-keep class com.keybd.pro.KeybdService { *; }
+-keep class com.keybd.pro.SettingsActivity { *; }
