@@ -11,18 +11,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@v3
       - name: Test ve derleme
+        # GitHub'ın Ubuntu sunucularında Android SDK hazır kurulu gelir (ANDROID_HOME).
         run: |
           chmod +x gradlew
           ./gradlew testReleaseUnitTest assembleRelease --no-daemon -PbuildNumber=${{ github.run_number }}
           cp app/build/outputs/apk/release/app-release.apk Keybd.apk
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: Keybd-apk
           path: Keybd.apk
