@@ -413,7 +413,8 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
     fun applyCase(s: String, st: Int = shift): String {
         if (st == 0 || page != Page.ALPHA) return s
         if (s.length != 1 || !s[0].isLetter()) return s
-        return s.uppercase(Layouts.locale(alphaId))
+        val u = s.uppercase(Layouts.locale(alphaId))
+        return if (u.length == 1) u else s
     }
 
     fun glideAllowed() = page == Page.ALPHA && fontStyle == 0 && allowSuggest && dict() != null
@@ -983,8 +984,10 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         commitComposing(false)
         panel?.let { c.removeView(it) }
         panel = v
+        // Panel, klavyeyle tam aynı yükseklikte açılır (pencere boyu zıplamaz).
+        val h = kbRow?.height?.takeIf { it > 0 } ?: kbView?.desiredHeight() ?: ViewGroup.LayoutParams.MATCH_PARENT
         kbRow?.visibility = View.INVISIBLE
-        c.addView(v, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        c.addView(v, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, h))
     }
 
     fun closePanel() {
