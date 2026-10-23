@@ -26,6 +26,13 @@ class SuggestionStrip(private val svc: KeybdService, private val theme: KbTheme)
     private var words = arrayOfNulls<String>(3)
     private var toolbarOpen = false
     private val toolButtons = HashMap<String, TextView>()
+    private val restoreBtn: TextView
+    private val searchBar = LinearLayout(svc)
+    private val searchQuery = TextView(svc)
+    private val searchResults = LinearLayout(svc)
+    private val searchScroll = HorizontalScrollView(svc)
+    var searching = false
+        private set
 
     init {
         orientation = HORIZONTAL
@@ -35,6 +42,17 @@ class SuggestionStrip(private val svc: KeybdService, private val theme: KbTheme)
         menuBtn = svc.flatButton("⋯", theme, 20f)
         menuBtn.setOnClickListener { toggleToolbar() }
         addView(menuBtn, LayoutParams(dpi(44f), LayoutParams.MATCH_PARENT))
+
+        // Yanlışlıkla silineni geri getir
+        restoreBtn = svc.flatButton("↶", theme, 15f, withAlpha(theme.accent, 70), dp(16f))
+        restoreBtn.setTextColor(theme.stripText)
+        restoreBtn.maxLines = 1
+        restoreBtn.ellipsize = TextUtils.TruncateAt.END
+        restoreBtn.setPadding(dpi(10f), 0, dpi(10f), 0)
+        restoreBtn.contentDescription = "Silineni geri getir"
+        restoreBtn.setOnClickListener { svc.restoreDeleted() }
+        restoreBtn.visibility = GONE
+        addView(restoreBtn, LayoutParams(LayoutParams.WRAP_CONTENT, dpi(34f)).apply { marginEnd = dpi(4f) })
 
         sugBox.orientation = HORIZONTAL
         sugBox.gravity = Gravity.CENTER_VERTICAL
@@ -61,6 +79,9 @@ class SuggestionStrip(private val svc: KeybdService, private val theme: KbTheme)
         toolBox.orientation = HORIZONTAL
         toolBox.gravity = Gravity.CENTER_VERTICAL
         tool("emoji", "☺", "Emoji") { svc.showEmojiPanel() }
+        tool("emojisearch", "🔍", "Emoji ara") { svc.startEmojiSearch() }
+        tool("calc", "🧮", "Hesap makinesi") { svc.showCalcPanel() }
+        tool("wheel", "🎡", "Karar çarkı (seçili/kopyalanan metinden)") { svc.showWheelPanel() }
         tool("clip", "📋", "Pano") { svc.showClipboardPanel() }
         tool("edit", "✥", "Metin düzenleme") { svc.showEditPanel() }
         tool("font", "𝔸", "Yazı stilleri") { svc.showFontPanel() }
@@ -82,6 +103,28 @@ class SuggestionStrip(private val svc: KeybdService, private val theme: KbTheme)
         message.visibility = GONE
         message.setOnClickListener { svc.stopVoice() }
         center.addView(message, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+
+        // Emoji arama çubuğu: [🔍 sorgu] [sonuçlar…] [✕]
+        searchBar.orientation = HORIZONTAL
+        searchBar.gravity = Gravity.CENTER_VERTICAL
+        searchBar.visibility = GONE
+        searchQuery.setTextColor(theme.stripText)
+        searchQuery.textSize = 15f
+        searchQuery.maxLines = 1
+        searchQuery.ellipsize = TextUtils.TruncateAt.START
+        searchQuery.setPadding(dpi(10f), 0, dpi(6f), 0)
+        searchQuery.background = roundRect(withAlpha(theme.stripText, 28), dp(16f))
+        searchQuery.gravity = Gravity.CENTER_VERTICAL
+        searchBar.addView(searchQuery, LayoutParams(LayoutParams.WRAP_CONTENT, dpi(32f)).apply { marginStart = dpi(2f) })
+        searchResults.orientation = HORIZONTAL
+        searchResults.gravity = Gravity.CENTER_VERTICAL
+        searchScroll.isHorizontalScrollBarEnabled = false
+        searchScroll.addView(searchResults)
+        searchBar.addView(searchScroll, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        val close = svc.flatButton("✕", theme, 16f)
+        close.setOnClickListener { svc.stopEmojiSearch() }
+        searchBar.addView(close, LayoutParams(dpi(36f), LayoutParams.MATCH_PARENT))
+        center.addView(searchBar, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
 
         addView(center, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
 
@@ -111,6 +154,7 @@ class SuggestionStrip(private val svc: KeybdService, private val theme: KbTheme)
     private fun hasWords() = words.any { it != null }
 
     fun showToolbar() {
+        if (searching) return
         toolbarOpen = true
         message.visibility = GONE
         sugBox.visibility = GONE
@@ -128,6 +172,7 @@ class SuggestionStrip(private val svc: KeybdService, private val theme: KbTheme)
 
     /** words[0] = ortadaki (ana) öneri. */
     fun setWords(list: List<String?>, boldCenter: Boolean, quotedIndex: Int = -1) {
+        if (searching) return
         words = arrayOfNulls(3)
         for (i in 0 until minOf(3, list.size)) words[i] = list[i]
         if (!hasWords()) {
@@ -154,16 +199,63 @@ class SuggestionStrip(private val svc: KeybdService, private val theme: KbTheme)
         showToolbar()
     }
 
-    fun showClipChip(text: String) {
+    /** Ortada tek bir eylem çipi (pano, hesap sonucu, çark…). Dokununca [value] seçilir. */
+    fun showChip(label: String, value: String) {
+        if (searching) return
         words = arrayOfNulls(3)
-        words[0] = text
+        words[0] = value
         for (tv in slots) {
             val idx = tv.tag as Int
-            tv.text = if (idx == 0) "📋 " + text.replace('\n', ' ').take(40) else ""
-            tv.typeface = Typeface.DEFAULT
-            tv.setTextColor(theme.stripText)
+            tv.text = if (idx == 0) label.replace('\n', ' ').take(44) else ""
+            tv.typeface = if (idx == 0) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            tv.setTextColor(if (idx == 0) theme.accent else theme.stripText)
         }
         showWordsView()
+    }
+
+    /** Silinen metin varsa şeridin solunda "↶ metin" düğmesini gösterir. */
+    fun setRestore(text: String?) {
+        if (text.isNullOrEmpty()) {
+            restoreBtn.visibility = GONE
+            return
+        }
+        val t = text.replace('\n', ' ').trim()
+        restoreBtn.text = "↶ " + if (t.length > 12) t.take(11) + "…" else t
+        restoreBtn.visibility = VISIBLE
+    }
+
+    fun showEmojiSearch(query: String, results: List<String>) {
+        searching = true
+        sugBox.visibility = GONE
+        toolScroll.visibility = GONE
+        message.visibility = GONE
+        searchBar.visibility = VISIBLE
+        menuBtn.visibility = GONE
+        micBtn.visibility = GONE
+        searchQuery.text = if (query.isEmpty()) "🔍 emoji ara…" else "🔍 $query▏"
+        searchResults.removeAllViews()
+        if (query.isNotEmpty() && results.isEmpty()) {
+            searchResults.addView(TextView(svc).apply {
+                text = "Sonuç yok"
+                setTextColor(theme.hint)
+                textSize = 13f
+                setPadding(dpi(10f), 0, 0, 0)
+            })
+        }
+        for (e in results) {
+            val b = svc.flatButton(e, theme, 22f)
+            b.setOnClickListener { svc.commitEmoji(e) }
+            searchResults.addView(b, LayoutParams(dpi(42f), dpi(40f)))
+        }
+        searchScroll.scrollTo(0, 0)
+    }
+
+    fun hideEmojiSearch() {
+        searching = false
+        searchBar.visibility = GONE
+        menuBtn.visibility = VISIBLE
+        micBtn.visibility = VISIBLE
+        clear()
     }
 
     fun showMessage(text: String?) {

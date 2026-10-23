@@ -44,3 +44,34 @@ fun isEmoji(s: String): Boolean {
     val cp = s.codePointAt(0)
     return cp >= 0x1F000 || cp in 0x2600..0x27BF || cp in 0x2190..0x21FF || cp in 0x2B00..0x2BFF || cp == 0x00A9 || cp == 0x00AE || cp in 0x2300..0x23FF
 }
+
+/** Fotoğrafı alanı dolduracak şekilde (center-crop) çizer, üstüne karartma uygular. */
+class CropDrawable(private val bmp: android.graphics.Bitmap, private val base: Int, private val dim: Int) : android.graphics.drawable.Drawable() {
+    private val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG or android.graphics.Paint.ANTI_ALIAS_FLAG)
+    private val dst = android.graphics.RectF()
+
+    override fun draw(c: android.graphics.Canvas) {
+        val b = bounds
+        c.drawColor(base)
+        val s = maxOf(b.width() / bmp.width.toFloat(), b.height() / bmp.height.toFloat())
+        val w = bmp.width * s
+        val h = bmp.height * s
+        dst.set(b.exactCenterX() - w / 2f, b.exactCenterY() - h / 2f, b.exactCenterX() + w / 2f, b.exactCenterY() + h / 2f)
+        c.save()
+        c.clipRect(b)
+        c.drawBitmap(bmp, null, dst, paint)
+        c.restore()
+        if (dim > 0) c.drawColor(Color.argb(dim, 0, 0, 0))
+    }
+
+    override fun setAlpha(alpha: Int) {
+        paint.alpha = alpha
+    }
+
+    override fun setColorFilter(cf: android.graphics.ColorFilter?) {
+        paint.colorFilter = cf
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity(): Int = android.graphics.PixelFormat.OPAQUE
+}

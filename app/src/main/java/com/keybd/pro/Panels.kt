@@ -90,6 +90,10 @@ object Panels {
             setOnClickListener { svc.onText(" ") }
         }))
 
+        val search = svc.flatButton("🔍", t, 18f, withAlpha(t.accent, 60))
+        search.contentDescription = "Emoji ara"
+        search.setOnClickListener { svc.startEmojiSearch() }
+        tabs.addView(search, LinearLayout.LayoutParams(svc.dpi(46f), svc.dpi(40f)))
         val cats = ArrayList<EmojiData.Category>()
         cats += EmojiData.Category("🕘", "Son kullanılanlar", svc.prefs.recentEmoji)
         cats += EmojiData.categories
@@ -274,6 +278,175 @@ object Panels {
         root.addView(ScrollView(svc).apply { addView(list); isVerticalScrollBarEnabled = false },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(bottomBar(svc, t))
+        return root
+    }
+
+    // ------------------------------------------------------------- Hesap makinesi
+
+    fun calculator(svc: KeybdService, t: KbTheme): View {
+        val root = root(svc, t)
+        val expr = StringBuilder()
+        val display = TextView(svc).apply {
+            setTextColor(t.text)
+            textSize = 22f
+            gravity = Gravity.CENTER_VERTICAL or Gravity.END
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.START
+            setPadding(svc.dpi(12f), 0, svc.dpi(12f), 0)
+        }
+        val preview = TextView(svc).apply {
+            setTextColor(t.hint)
+            textSize = 14f
+            gravity = Gravity.END
+            setPadding(svc.dpi(12f), 0, svc.dpi(12f), 0)
+        }
+        val head = LinearLayout(svc).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = roundRect(t.key, svc.dp(10f))
+        }
+        head.addView(display, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.4f))
+        head.addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        root.addView(head, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.3f).apply {
+            setMargins(svc.dpi(6f), svc.dpi(4f), svc.dpi(6f), svc.dpi(2f))
+        })
+
+        fun result(): String? = Calc.compute(expr.toString())
+        fun refresh() {
+            display.text = if (expr.isEmpty()) "0" else expr
+            preview.text = if (Calc.trailingExpression(expr.toString()) != null) result()?.let { "= $it" } ?: "" else ""
+        }
+        fun press(k: String) {
+            svc.keyFeedback(null)
+            when (k) {
+                "C" -> expr.setLength(0)
+                "⌫" -> if (expr.isNotEmpty()) expr.setLength(expr.length - 1)
+                "=" -> result()?.let { expr.setLength(0); expr.append(it) }
+                "Ekle" -> {
+                    val r = if (Calc.trailingExpression(expr.toString()) != null) result() else null
+                    val text = r ?: expr.toString()
+                    if (text.isNotEmpty()) svc.insertFromPanel(text, Stats.CALC)
+                    return
+                }
+                "ABC" -> { svc.closePanel(); return }
+                else -> expr.append(k)
+            }
+            refresh()
+        }
+        val rows = listOf(
+            listOf("C", "(", ")", "÷", "⌫"),
+            listOf("7", "8", "9", "×", "%"),
+            listOf("4", "5", "6", "−", "^"),
+            listOf("1", "2", "3", "+", "ABC"),
+            listOf("0", ",", "=", "Ekle"),
+        )
+        for (r in rows) {
+            val row = LinearLayout(svc).apply { orientation = LinearLayout.HORIZONTAL }
+            for (k in r) {
+                val fn = k !in listOf("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ",")
+                val bg = when (k) {
+                    "=", "Ekle" -> t.accent
+                    else -> if (fn) t.keyFn else t.key
+                }
+                val b = svc.flatButton(k, t, if (k.length > 1) 14f else 19f, bg, svc.dp(8f))
+                if (k == "=" || k == "Ekle") b.setTextColor(t.accentText) else b.setTextColor(t.text)
+                b.setOnClickListener { press(k) }
+                row.addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, if (k == "Ekle") 2f else 1f).apply {
+                    setMargins(svc.dpi(3f), svc.dpi(2f), svc.dpi(3f), svc.dpi(2f))
+                })
+            }
+            root.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        }
+        refresh()
+        return root
+    }
+
+    // ------------------------------------------------------------- Karar çarkı
+
+    fun wheel(svc: KeybdService, t: KbTheme, initial: List<String>, note: String): View {
+        val root = root(svc, t)
+        val options = initial.toMutableList()
+        val body = LinearLayout(svc).apply { orientation = LinearLayout.HORIZONTAL }
+        val wheel = WheelView(svc, t)
+        wheel.options = options.toList()
+        body.addView(wheel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.15f))
+
+        val side = LinearLayout(svc).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(svc.dpi(6f), svc.dpi(4f), svc.dpi(8f), svc.dpi(4f))
+        }
+        side.addView(TextView(svc).apply {
+            text = note
+            setTextColor(t.hint)
+            textSize = 12f
+            maxLines = 2
+        })
+        val result = TextView(svc).apply {
+            text = "Çarka dokun ya da Çevir'e bas"
+            setTextColor(t.text)
+            textSize = 16f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, svc.dpi(4f), 0, svc.dpi(4f))
+        }
+        side.addView(result)
+        val chips = LinearLayout(svc).apply { orientation = LinearLayout.VERTICAL }
+        val chipScroll = ScrollView(svc).apply { addView(chips); isVerticalScrollBarEnabled = false }
+        side.addView(chipScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
+        var winner: String? = null
+        fun fillChips() {
+            chips.removeAllViews()
+            for (o in options.toList()) {
+                val c = svc.flatButton("✕  $o", t, 13f, t.key, svc.dp(14f))
+                c.gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                c.setTextColor(t.text)
+                c.maxLines = 1
+                c.ellipsize = TextUtils.TruncateAt.END
+                c.setPadding(svc.dpi(10f), 0, svc.dpi(8f), 0)
+                c.setOnClickListener {
+                    if (wheel.spinning) return@setOnClickListener
+                    if (options.size <= 2) { svc.toast("En az 2 seçenek kalmalı"); return@setOnClickListener }
+                    options.remove(o)
+                    wheel.options = options.toList()
+                    fillChips()
+                }
+                chips.addView(c, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, svc.dpi(30f)).apply { bottomMargin = svc.dpi(3f) })
+            }
+        }
+        fillChips()
+        body.addView(side, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        root.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
+        val send = svc.flatButton("Gönder", t, 14f, t.keyFn, svc.dp(10f))
+        val spin = svc.flatButton("🎡 Çevir", t, 15f, t.accent, svc.dp(10f)).apply { setTextColor(t.accentText) }
+        wheel.onTick = { svc.keyFeedback(null) }
+        wheel.onResult = { w ->
+            winner = w
+            result.text = "🎉 $w"
+            svc.onWheelSpun()
+        }
+        spin.setOnClickListener {
+            result.text = "Dönüyor…"
+            wheel.spin()
+        }
+        send.setOnClickListener {
+            val w = winner
+            if (w == null) svc.toast("Önce çarkı çevirin") else svc.insertFromPanel("🎡 Çark: $w", null)
+        }
+        val bar = LinearLayout(svc).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(svc.dpi(4f), svc.dpi(2f), svc.dpi(4f), svc.dpi(4f))
+        }
+        val abc = svc.flatButton("ABC", t, 15f, t.keyFn).apply {
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setOnClickListener { svc.closePanel() }
+        }
+        bar.addView(abc, LinearLayout.LayoutParams(svc.dpi(64f), svc.dpi(42f)))
+        bar.addView(spin, LinearLayout.LayoutParams(0, svc.dpi(42f), 1f).apply { marginStart = svc.dpi(6f); marginEnd = svc.dpi(6f) })
+        bar.addView(send, LinearLayout.LayoutParams(svc.dpi(90f), svc.dpi(42f)))
+        root.addView(bar)
         return root
     }
 }

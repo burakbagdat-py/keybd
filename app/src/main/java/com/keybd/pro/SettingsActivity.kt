@@ -38,6 +38,8 @@ class SettingsActivity : Activity() {
     private var awaitingPick = false
     private var updateStatus: TextView? = null
     private var checking = false
+    private var statsView: TextView? = null
+    private var themeEditor: ThemeEditor? = null
     private val accent = Color.parseColor("#1F6FEB")
     private var textColor = Color.BLACK
     private var subColor = Color.GRAY
@@ -73,9 +75,20 @@ class SettingsActivity : Activity() {
             System.currentTimeMillis() - prefs.sp.getLong(LAST_CHECK, 0) > 6 * 3600_000L) checkUpdate(silent = true)
     }
 
+    private val statsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key != null && key.startsWith("st_")) runOnUiThread { refreshStats() }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        prefs.sp.unregisterOnSharedPreferenceChangeListener(statsListener)
+    }
+
     override fun onResume() {
         super.onResume()
+        prefs.sp.registerOnSharedPreferenceChangeListener(statsListener)
         refreshStatus()
+        refreshStats()
         // Kurulum izni verilirken Android uygulamayı yeniden başlatır; güncellemeye kaldığı yerden devam et.
         if (prefs.sp.getBoolean(PENDING_UPDATE, false) &&
             (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls())) {
@@ -284,6 +297,21 @@ class SettingsActivity : Activity() {
         header("GÖRÜNÜM")
         val themeRow = action("Tema", Themes.get(this, prefs.theme).name) {}
         themeRow.setOnClickListener { pickTheme(themeRow) }
+        action("🎨 Kendi temanı oluştur", "Renkleri seç, arka plana fotoğrafını koy") {
+            val ed = ThemeEditor(this, prefs, pickImage = {
+                startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"), REQ_IMAGE)
+            }, onApplied = {
+                ((themeRow.getChildAt(0) as LinearLayout).getChildAt(1) as TextView).text = "Özel temam"
+                toast("Tema uygulandı 🎨")
+            })
+            themeEditor = ed
+            ed.show()
+        }
+        action("🖤 Venom Simbiyot temasını uygula", "Siyah-beyaz, dokunaçlı, canlı simbiyot klavye") {
+            prefs.sp.edit().putString(Prefs.THEME, "venom").apply()
+            ((themeRow.getChildAt(0) as LinearLayout).getChildAt(1) as TextView).text = "Venom Simbiyot"
+            toast("Simbiyot bağlandı 🕷️")
+        }
         slider("Klavye yüksekliği", Prefs.HEIGHT, 70, 140, 100) { "%$it" }
         slider("Yazı boyutu", Prefs.FONT_SCALE, 70, 140, 100) { "%$it" }
         slider("Tuş köşe yuvarlaklığı", Prefs.RADIUS, 0, 24, 8) { "${it}dp" }
@@ -332,6 +360,32 @@ class SettingsActivity : Activity() {
         slider("Ses düzeyi", Prefs.SOUND_VOL, 0, 100, 40) { "%$it" }
 
         // Pano / gizlilik
+        header("YAZMA İSTATİSTİKLERİ")
+        statsView = TextView(this).apply {
+            textSize = 15f
+            setTextColor(textColor)
+            setLineSpacing(0f, 1.3f)
+            setPadding(dpi(14f), dpi(12f), dpi(14f), dpi(8f))
+        }
+        add(statsView!!)
+        action("İstatistikleri sıfırla", null) {
+            AlertDialog.Builder(this).setTitle("İstatistikler sıfırlansın mı?")
+                .setPositiveButton("Sıfırla") { _, _ -> Stats.reset(prefs.sp); refreshStats() }
+                .setNegativeButton("Vazgeç", null).show()
+        }
+        refreshStats()
+
+        header("YEDEKLEME")
+        action("💾 Yedek oluştur", "Ayarlar, kısayollar, öğrenilen kelimeler, tema ve istatistikler tek dosyada") {
+            val name = "keybd-yedek-" + java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US).format(java.util.Date()) + ".json"
+            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("application/json").putExtra(Intent.EXTRA_TITLE, name), REQ_BACKUP)
+        }
+        action("📂 Yedekten geri yükle", "Yeni telefonda yedek dosyasını seçin") {
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("*/*"), REQ_RESTORE)
+        }
+
         header("GÜNCELLEME")
         val up = rowContainer()
         val upStatus = TextView(this).apply { text = "Sürüm ${BuildConfig.VERSION_NAME}"; textSize = 13f; setTextColor(subColor) }
@@ -569,6 +623,59 @@ class SettingsActivity : Activity() {
         requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 7)
     }
 
+    private fun refreshStats() {
+        val v = statsView ?: return
+        val sp = prefs.sp
+        fun n(k: String) = sp.getLong(k, 0L)
+        val since = n(Stats.SINCE)
+        val fmt = java.text.NumberFormat.getIntegerInstance(java.util.Locale("tr", "TR"))
+        val days = if (since > 0) ((System.currentTimeMillis() - since) / 86_400_000L + 1) else 0
+        val wpm = Stats.wpm(sp)
+        v.text = if (n(Stats.WORDS) == 0L && n(Stats.CHARS) == 0L) "Henüz istatistik yok. Klavyeyle yazdıkça burada görünecek. 📊"
+        else buildString {
+            append("✍️ Toplam kelime: ${fmt.format(n(Stats.WORDS))}\n")
+            append("📅 Bugün: ${fmt.format(n(Stats.todayKey()))} kelime\n")
+            append("🔤 Harf/karakter: ${fmt.format(n(Stats.CHARS))}\n")
+            append("⚡ Hız: ${if (wpm > 0) "$wpm kelime/dakika" else "hesaplanıyor…"}\n")
+            append("🩹 Otomatik düzeltme seni ${fmt.format(n(Stats.AUTOCORRECT))} kez kurtardı\n")
+            append("👆 Seçilen öneri: ${fmt.format(n(Stats.PICKS))}\n")
+            append("〰️ Kaydırarak yazılan: ${fmt.format(n(Stats.GLIDE))}\n")
+            append("😀 Gönderilen emoji: ${fmt.format(n(Stats.EMOJI))}\n")
+            append("↶ Geri getirilen silme: ${fmt.format(n(Stats.RESTORE))}\n")
+            append("🧮 Hesaplama: ${fmt.format(n(Stats.CALC))}   🎡 Çark: ${fmt.format(n(Stats.WHEEL))}")
+            if (days > 0) append("\n⏳ $days gündür Keybd kullanıyorsun")
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null) return
+        when (requestCode) {
+            REQ_IMAGE -> themeEditor?.onImagePicked(uri)
+            REQ_BACKUP -> try {
+                contentResolver.openOutputStream(uri)?.use { Backup.export(this, it) }
+                toast("Yedek kaydedildi 💾")
+            } catch (e: Exception) {
+                toast("Yedek kaydedilemedi")
+            }
+            REQ_RESTORE -> AlertDialog.Builder(this).setTitle("Yedek geri yüklensin mi?")
+                .setMessage("Mevcut ayarlar ve öğrenilen kelimeler yedektekilerle değiştirilecek.")
+                .setPositiveButton("Geri yükle") { _, _ ->
+                    val ok = try {
+                        contentResolver.openInputStream(uri)?.use { Backup.import(this, it) } ?: false
+                    } catch (e: Exception) {
+                        false
+                    }
+                    if (ok) {
+                        toast("Yedek geri yüklendi ✓")
+                        recreate()
+                    } else toast("Bu dosya geçerli bir Keybd yedeği değil")
+                }.setNegativeButton("Vazgeç", null).show()
+        }
+    }
+
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 7) toast(if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) "Mikrofon izni verildi 🎤" else "İzin verilmedi")
@@ -581,5 +688,8 @@ class SettingsActivity : Activity() {
         const val AUTO_UPDATE = "auto_update"
         const val LAST_CHECK = "last_update_check"
         const val PENDING_UPDATE = "pending_update"
+        const val REQ_IMAGE = 23
+        const val REQ_BACKUP = 21
+        const val REQ_RESTORE = 22
     }
 }

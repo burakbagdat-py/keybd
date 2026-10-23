@@ -47,6 +47,11 @@ test edip derler, sürüm numarasını artırır (1.N) ve
 - **Kısayollar / metin genişletme** — `slm` → `selam`, kendi kısayollarınızı ekleyin
 - Otomatik büyük harf, **çift boşluk = nokta**, akıllı noktalama
 - Silerek bir kelimeye dönünce o kelime için öneriler yeniden açılır
+- **Silineni geri getirme** — yanlışlıkla sildiğin metin şeritte **↶** düğmesiyle tek dokunuşta geri gelir
+- **Kelimeye dokununca öneri** — metinde geriye dönüp bir kelimeye dokununca o kelimenin
+  düzeltmeleri şeritte çıkar; seçince kelime değişir
+- **Satır içi hesap makinesi** — `125*4=` yazınca şeritte `= 500` çıkar, dokununca eklenir
+  (`+ − × ÷ % ^` ve parantez; `1,5+2` gibi virgüllü sayılar)
 
 ### Hareketler
 - **Boşluk tuşunda kaydırma** → imleci sağa/sola taşı
@@ -58,6 +63,12 @@ test edip derler, sürüm numarasını artırır (1.N) ve
 
 ### Araç çubuğu (⋯)
 - 😀 **Emoji paneli** — 11 kategori, son kullanılanlar, **kaomoji** ( ͡° ͜ʖ ͡°) ve özel simgeler
+- 🔍 **Emoji arama** — klavyeden yazarak ara: `kalp` → ❤️, `pizza` → 🍕, `türkiye` → 🇹🇷
+  (1.300+ emoji, Türkçe ve İngilizce anahtar kelimeler)
+- 🧮 **Hesap makinesi paneli** — sonucu tek dokunuşla metne ekle
+- 🎡 **Karar çarkı** — seçtiğin veya kopyaladığın metindeki seçeneklerden çark oluşturur
+  (`pizza mı burger mi?`, `Sinema, tiyatro veya konser`, alt alta liste…), çevir ve sonucu
+  sohbete gönder. Metin seçince şeritte **🎡 Çark yap** düğmesi de çıkar
 - 📋 **Pano geçmişi** — son 40 kopya, **sabitleme**, son kopyalananı tek dokunuşla yapıştırma
 - ✥ **Metin düzenleme paneli** — ok tuşları, seçim modu, tümünü seç, kopyala/kes/yapıştır, geri al/yinele
 - 𝔸 **Süslü yazı stilleri** — 𝐊𝐚𝐥ı𝐧, 𝐼𝑡𝑎𝑙𝑖𝑘, 𝓔𝓵 𝔂𝓪𝔃ı𝓼ı, 𝕲𝖔𝖙𝖎𝖐, 𝔻𝕠𝕦𝕓𝕝𝕖, Ⓓⓐⓘⓡⓔ, 🅺🅰🆁🅴, Ｇｅｎｉş, ᴋüçüᴋ, s̶t̶r̶i̶k̶e̶ …
@@ -67,12 +78,22 @@ test edip derler, sürüm numarasını artırır (1.N) ve
 - 🎤 **Sesli yazma** (Türkçe/İngilizce, cihazın konuşma tanıma servisiyle)
 
 ### Görünüm
-- 10 tema: **Material You** (Android 12+ duvar kağıdı renkleri), Koyu, Açık, AMOLED Siyah,
-  Okyanus, Gün Batımı, Orman, Pembe, Gece Moru, Retro
+- 12 tema: **Material You** (Android 12+ duvar kağıdı renkleri), Koyu, Açık, AMOLED Siyah,
+  Okyanus, Gün Batımı, Orman, Pembe, Gece Moru, Retro, **Venom Simbiyot** ve **Özel temam**
+- 🖤 **Venom Simbiyot** — siyah-beyaz, organik kenarlı ve "damlayan" tuşlar, arka planda
+  dokunaçlar, her dokunuşta saçılan simbiyot dikenleri
+- 🎨 **Kendi temanı oluştur** — renkleri seç (hazır takımlar, renk tekerleği, HEX), istersen
+  arka plana kendi fotoğrafını koy; tuş saydamlığı ve karartma ayarı, canlı önizleme
 - Ayarlanabilir klavye yüksekliği, yazı boyutu, tuş köşe yuvarlaklığı ve tuş aralığı
 - İsteğe bağlı sayı satırı, tuş ipuçları, tuş önizleme balonu, çerçevesiz görünüm
 - Alana göre akıllı düzen: e-posta alanında `@`, adres alanında `/` ve `.com`,
   sayı/telefon alanlarında sayı tuş takımı, şifre alanlarında öğrenme kapalı + sayı satırı
+
+### İstatistik ve yedekleme
+- 📊 **Yazma istatistikleri** — toplam/bugünkü kelime, dakikada kelime hızı, otomatik
+  düzeltmenin seni kaç kez kurtardığı, kaydırarak yazılan kelimeler, emojiler… (yalnızca cihazda)
+- 💾 **Yedekleme / geri yükleme** — ayarlar, kısayollar, öğrenilen kelimeler, tema fotoğrafı,
+  sabitlenen pano öğeleri ve istatistikler tek bir dosyada; telefon değiştirince geri yükle
 
 ### Geri bildirim
 - Ayarlanabilir titreşim süresi, tuş sesi ve ses düzeyi
@@ -102,6 +123,12 @@ derler ve yeni bir sürüm olarak yayınlar; uygulamadaki güncelleyici bu sür�
 | `SuggestionStrip.kt` / `Panels.kt` | Öneri şeridi, araç çubuğu, emoji/pano/düzenleme/stil panelleri |
 | `SettingsActivity.kt` | Kurulum sihirbazı ve ayarlar |
 | `Updater.kt` | GitHub sürümlerinden güncelleme denetleme, indirme ve kurma |
+| `Calc.kt` | Hesap makinesi ve çark seçeneklerini ayıklama |
+| `WheelView.kt` | Dönen karar çarkı |
+| `EmojiSearch.kt` | Emoji arama (CLDR anahtar kelimeleri) |
+| `ThemeEditor.kt` | Kendi temanı oluşturma ve renk seçici |
+| `Stats.kt` / `Backup.kt` | Yazma istatistikleri, yedekleme ve geri yükleme |
 
 Sözlük verileri [hermitdave/FrequencyWords](https://github.com/hermitdave/FrequencyWords)
-(CC BY-SA 4.0) kaynağından türetilmiştir.
+(CC BY-SA 4.0), emoji anahtar kelimeleri [Unicode CLDR](https://github.com/unicode-org/cldr-json)
+(Unicode lisansı) kaynağından türetilmiştir.

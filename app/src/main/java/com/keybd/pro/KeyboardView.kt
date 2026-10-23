@@ -93,6 +93,109 @@ class KeyboardView(ctx: Context, private val svc: KeybdService) : View(ctx) {
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         layoutKeys()
+        buildTendrils(w, h)
+    }
+
+    // ---------------- simbiyot teması ----------------
+
+    private val sym get() = theme.style == KbTheme.STYLE_SYMBIOTE
+    private val tendrils = ArrayList<Path>()
+    private val splashes = ArrayList<FloatArray>()
+    private val symPath = Path()
+    private val dripPath = Path()
+    private val symPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+
+    /** Klavyenin kenarlarından içeri uzanan organik "simbiyot" dokunaçları. */
+    private fun buildTendrils(w: Int, h: Int) {
+        tendrils.clear()
+        if (w <= 0 || h <= 0) return
+        val r = java.util.Random(7)
+        repeat(11) { i ->
+            val path = Path()
+            val sx: Float
+            val sy: Float
+            when (i % 4) {
+                0 -> { sx = r.nextFloat() * w; sy = 0f }
+                1 -> { sx = r.nextFloat() * w; sy = h.toFloat() }
+                2 -> { sx = 0f; sy = r.nextFloat() * h }
+                else -> { sx = w.toFloat(); sy = r.nextFloat() * h }
+            }
+            path.moveTo(sx, sy)
+            var x = sx
+            var y = sy
+            repeat(2 + r.nextInt(2)) {
+                val nx = (x + (r.nextFloat() - 0.5f) * w * 0.5f).coerceIn(0f, w.toFloat())
+                val ny = (y + (r.nextFloat() - 0.5f) * h * 0.9f).coerceIn(0f, h.toFloat())
+                path.cubicTo(
+                    x + (r.nextFloat() - 0.5f) * w * 0.3f, y + (r.nextFloat() - 0.5f) * h * 0.6f,
+                    nx + (r.nextFloat() - 0.5f) * w * 0.3f, ny + (r.nextFloat() - 0.5f) * h * 0.6f,
+                    nx, ny,
+                )
+                x = nx; y = ny
+            }
+            tendrils += path
+        }
+    }
+
+    private fun drawTendrils(c: Canvas) {
+        symPaint.style = Paint.Style.STROKE
+        for ((i, t) in tendrils.withIndex()) {
+            val base = if (i % 3 == 0) 1.3f else 0.8f
+            symPaint.color = withAlpha(theme.text, 20); symPaint.strokeWidth = dp(10f * base); c.drawPath(t, symPaint)
+            symPaint.color = withAlpha(theme.text, 40); symPaint.strokeWidth = dp(4.5f * base); c.drawPath(t, symPaint)
+            symPaint.color = withAlpha(theme.text, 95); symPaint.strokeWidth = dp(1.4f * base); c.drawPath(t, symPaint)
+        }
+    }
+
+    /** Organik kenarlı, bazıları "damlayan" simbiyot tuşu. */
+    private fun drawSymbioteKey(c: Canvas, r: RectF, k: Key, idx: Int, pressed: Boolean) {
+        symPath.reset()
+        val rad = radius.coerceAtLeast(dp(6f)) * 1.3f
+        symPath.addRoundRect(r, rad, rad, Path.Direction.CW)
+        if (k.type == KeyType.CHAR && (idx * 7919 + 3) % 5 == 0) {
+            val dr = min(r.width(), r.height()) * 0.13f
+            val dx = r.left + r.width() * (0.25f + ((idx * 31) % 50) / 100f)
+            dripPath.reset()
+            dripPath.addCircle(dx, r.bottom + dr * 0.8f, dr, Path.Direction.CW)
+            dripPath.addRect(dx - dr * 0.55f, r.bottom - dr, dx + dr * 0.55f, r.bottom + dr * 0.6f, Path.Direction.CW)
+            symPath.op(dripPath, Path.Op.UNION)
+        }
+        symPaint.style = Paint.Style.FILL
+        symPaint.color = if (pressed) theme.keyPressed else if (k.type == KeyType.ENTER || (k.type == KeyType.SHIFT && shiftState == 2)) theme.accent else theme.key
+        c.drawPath(symPath, symPaint)
+        if (!pressed) {
+            symPaint.style = Paint.Style.STROKE
+            symPaint.strokeWidth = dp(1.4f)
+            symPaint.color = withAlpha(theme.text, if (k.isFunctional) 150 else 220)
+            c.drawPath(symPath, symPaint)
+        }
+    }
+
+    /** Tuşa basınca etrafa saçılan simbiyot dikenleri. */
+    private fun drawSplashes(c: Canvas) {
+        if (splashes.isEmpty()) return
+        val now = android.os.SystemClock.uptimeMillis().toFloat()
+        val it = splashes.iterator()
+        symPaint.style = Paint.Style.STROKE
+        while (it.hasNext()) {
+            val s = it.next()
+            val f = (now - s[2]) / 380f
+            if (f >= 1f) { it.remove(); continue }
+            val r0 = rowHeight * 0.3f
+            val len = rowHeight * (0.25f + 0.75f * f)
+            symPaint.color = withAlpha(theme.text, ((1f - f) * 220).toInt())
+            symPaint.strokeWidth = dp(3.5f) * (1f - f) + dp(0.5f)
+            for (i in 0 until 8) {
+                val a = (i * Math.PI * 2 / 8 + s[3]).toFloat()
+                val ca = kotlin.math.cos(a)
+                val sa = kotlin.math.sin(a)
+                c.drawLine(s[0] + ca * r0, s[1] + sa * r0, s[0] + ca * (r0 + len * (if (i % 2 == 0) 1f else 0.6f)), s[1] + sa * (r0 + len * (if (i % 2 == 0) 1f else 0.6f)), symPaint)
+            }
+        }
+        postInvalidateOnAnimation()
     }
 
     private fun layoutKeys() {
@@ -141,13 +244,21 @@ class KeyboardView(ctx: Context, private val svc: KeybdService) : View(ctx) {
     // ---------------- çizim ----------------
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawColor(theme.bg)
+        if (!theme.image) canvas.drawColor(theme.bg)
         val l = kb ?: return
         val hg = gap / 2f
         val vg = gap * 0.75f
+        if (sym) drawTendrils(canvas)
+        var idx = 0
         for (row in l.rows) for (k in row.keys) {
             rect.set(k.left + hg, k.top + vg, k.right - hg, k.bottom - vg)
             val pressed = k === curKey && mode != Mode.GLIDE
+            idx++
+            if (sym) {
+                drawSymbioteKey(canvas, rect, k, idx, pressed)
+                drawLabel(canvas, k, pressed)
+                continue
+            }
             val bg = when {
                 pressed -> theme.keyPressed
                 k.type == KeyType.ENTER -> theme.accent
@@ -165,8 +276,9 @@ class KeyboardView(ctx: Context, private val svc: KeybdService) : View(ctx) {
                 keyPaint.color = bg
                 canvas.drawRoundRect(rect, radius, radius, keyPaint)
             }
-            drawLabel(canvas, k)
+            drawLabel(canvas, k, pressed)
         }
+        if (sym) drawSplashes(canvas)
         if (mode == Mode.GLIDE && glideTrail && glidePts.size > 1) {
             trailPaint.color = withAlpha(theme.accent, 200)
             trailPaint.strokeWidth = dp(5f)
@@ -186,7 +298,7 @@ class KeyboardView(ctx: Context, private val svc: KeybdService) : View(ctx) {
         else -> k.label
     }
 
-    private fun drawLabel(canvas: Canvas, k: Key) {
+    private fun drawLabel(canvas: Canvas, k: Key, pressed: Boolean = false) {
         val label = labelFor(k)
         if (label.isEmpty()) return
         val single = label.codePointCount(0, label.length) == 1
@@ -200,6 +312,7 @@ class KeyboardView(ctx: Context, private val svc: KeybdService) : View(ctx) {
         textPaint.textSize = dp(size)
         textPaint.typeface = if (k.isFunctional && !single) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         textPaint.color = when {
+            pressed && sym -> theme.bg
             k.type == KeyType.ENTER -> theme.accentText
             k.type == KeyType.SHIFT && shiftState == 2 -> theme.accentText
             k.type == KeyType.SPACE -> theme.hint
@@ -258,6 +371,10 @@ class KeyboardView(ctx: Context, private val svc: KeybdService) : View(ctx) {
         repeatCount = 0
         cursorAccum = 0f
         svc.keyFeedback(k)
+        if (sym) {
+            splashes += floatArrayOf(k.cx, k.cy, android.os.SystemClock.uptimeMillis().toFloat(), (Math.random() * 6.28).toFloat())
+            postInvalidateOnAnimation()
+        }
         if (preview && k.type == KeyType.CHAR) showPreview(k)
         glidePts.clear()
         if (glideEnabled && k.isLetter && kb?.isAlpha == true && svc.glideAllowed()) glidePts += Pt(x, y)
@@ -424,7 +541,7 @@ class KeyboardView(ctx: Context, private val svc: KeybdService) : View(ctx) {
             previewText = this
         }
         tv.text = label
-        tv.setTextColor(theme.text)
+        tv.setTextColor(if (sym) theme.bg else theme.text)
         tv.textSize = 28f * fontScale
         tv.background = roundRect(theme.keyPressed, radius * 1.4f)
         val win = previewWin ?: PopupWindow(tv).apply {

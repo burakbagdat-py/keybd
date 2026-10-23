@@ -67,8 +67,26 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
     private var lastSpace = 0L
     private var selStart = -1
     private var selEnd = -1
-    private var clipChip: String? = null
+    /** Şeridin ortasında gösterilen tek eylem: pano, hesap sonucu veya çark. */
+    private class Chip(val kind: Int, val label: String, val value: String)
+    private var chip: Chip? = null
     private var clipChipShownFor: ClipHistory.Item? = null
+
+    // Silineni geri getirme
+    private val deleted = StringBuilder()
+    private var deleting = false
+    private var swipeLen = 0
+
+    // Kelimeye dokununca öneri
+    private var lastEdit = 0L
+    private var tapWord: Triple<Int, Int, String>? = null
+
+    // Emoji arama
+    private var emojiQuery: StringBuilder? = null
+    private var emojiSearch: EmojiSearch? = null
+
+    lateinit var stats: Stats
+        private set
 
     private var swipeAnchor = -1
     private var swipeText = ""
@@ -106,6 +124,7 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         super.onCreate()
         prefs = Prefs(this)
         clip = ClipHistory(prefs)
+        stats = Stats(prefs.sp)
         prefs.sp.registerOnSharedPreferenceChangeListener(this)
         alphaId = prefs.currentLayout
         ensureDict(Layouts.lang(alphaId))
@@ -123,6 +142,7 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         }
         voice?.stop()
         dicts.values.forEach { it.save() }
+        stats.flush()
         super.onDestroy()
     }
 
@@ -138,6 +158,12 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         if (key == null) return
         if (key == Prefs.DICT_RESET) {
             dicts.values.forEach { it.clearLearned() }
+            return
+        }
+        if (key == Prefs.DICT_RELOAD) {
+            // Yedekten geri yüklendi: sözlükleri dosyalardan yeniden oku
+            dicts.clear()
+            ensureDict(Layouts.lang(alphaId))
             return
         }
         if (key in Prefs.VIEW_KEYS) {
@@ -161,6 +187,15 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(t.bg)
+        }
+        if (t.image) {
+            val bmp = try {
+                android.graphics.BitmapFactory.decodeFile(java.io.File(filesDir, Themes.BG_FILE).path)
+            } catch (_: Throwable) {
+                null
+            }
+            if (bmp != null) root.background = CropDrawable(bmp, prefs.sp.getInt(Themes.CUSTOM_BG, android.graphics.Color.BLACK),
+                prefs.sp.getInt(Themes.CUSTOM_DIM, 30) * 255 / 100)
         }
         val s = SuggestionStrip(this, t)
         strip = s
@@ -270,6 +305,9 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         shift = 0
         selStart = info.initialSelStart
         selEnd = info.initialSelEnd
+        tapWord = null
+        if (emojiQuery != null) stopEmojiSearch()
+        clearRestore()
         closePanel()
 
         kbView?.enterLabel = enterLabel(info)
@@ -277,9 +315,9 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         updateShift()
 
         val last = clip.lastAdded
-        clipChip = if (last != null && last !== clipChipShownFor && System.currentTimeMillis() - last.time < 90_000 && !isPassword) {
+        chip = if (last != null && last !== clipChipShownFor && System.currentTimeMillis() - last.time < 90_000 && !isPassword) {
             clipChipShownFor = last
-            last.text
+            Chip(CHIP_CLIP, "📋 " + last.text, last.text)
         } else null
         updateSuggestions()
     }
@@ -287,7 +325,9 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         stopVoice()
+        if (emojiQuery != null) stopEmojiSearch()
         closePanel()
+        stats.flush()
     }
 
     override fun onFinishInput() {
@@ -295,12 +335,15 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         composing.clear()
         composingFromGlide = false
         dicts.values.forEach { it.save() }
+        stats.flush()
     }
 
     override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
         selStart = newSelStart
         selEnd = newSelEnd
+        // İmleç ileri veya uzağa atladıysa silme serisi biter (geri getirme tamponu yenilenir)
+        if (deleting && (newSelStart > oldSelStart || oldSelStart - newSelStart > 64)) deleting = false
         if (composing.isNotEmpty() && (newSelStart != candidatesEnd || newSelEnd != candidatesEnd)) {
             // Kendi işlemlerimizden gelen gecikmeli bir olay olabilir: kelime hâlâ imlecin
             // hemen önündeyse oluşturmaya devam et.
@@ -313,7 +356,25 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
             currentInputConnection?.finishComposingText()
             updateSuggestions()
         }
-        if (composing.isEmpty() && !inDeleteSwipe) updateShift()
+        if (composing.isEmpty() && !inDeleteSwipe) {
+            updateShift()
+            if (newSelStart != newSelEnd) {
+                // Metin seçildi: içinde seçenekler varsa "Çark yap" çipi
+                val sel = currentInputConnection?.getSelectedText(0)?.toString()
+                val opts = WheelOptions.parse(sel)
+                if (sel != null && opts.size >= 2) {
+                    chip = Chip(CHIP_WHEEL, "🎡 Çark yap (${opts.size} seçenek)", sel)
+                    showPredictions()
+                }
+            } else {
+                if (chip?.kind == CHIP_WHEEL) {
+                    chip = null
+                    updateSuggestions()
+                }
+                // Kullanıcı imleci bir kelimeye taşıdıysa (dokunma) o kelimenin önerilerini göster
+                if (candidatesStart == -1 && SystemClock.uptimeMillis() - lastEdit > 400) checkTapWord(newSelStart)
+            }
+        }
     }
 
     private fun enterLabel(info: EditorInfo): String {
@@ -388,6 +449,8 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
     // ====================================================================== geri bildirim
 
     fun keyFeedback(k: Key?) {
+        markEdit()
+        stats.keyPressed(SystemClock.uptimeMillis())
         if (prefs.vibrate) {
             try {
                 val ms = prefs.vibrateMs.toLong().coerceAtLeast(1)
@@ -417,9 +480,29 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         return if (u.length == 1) u else s
     }
 
-    fun glideAllowed() = page == Page.ALPHA && fontStyle == 0 && allowSuggest && dict() != null
+    fun glideAllowed() = page == Page.ALPHA && fontStyle == 0 && allowSuggest && dict() != null && emojiQuery == null
 
     fun onKey(k: Key) {
+        val q = emojiQuery
+        if (q != null) {
+            // Emoji arama modu: yazılanlar uygulamaya değil arama kutusuna gider
+            when (k.type) {
+                KeyType.CHAR, KeyType.TEXT -> onText(k.output)
+                KeyType.SPACE -> { if (q.isNotEmpty() && q.last() != ' ') q.append(' '); refreshEmojiSearch() }
+                KeyType.DELETE -> handleDelete(0)
+                KeyType.ENTER -> {
+                    emojiSearch?.search(q.toString())?.firstOrNull()?.let { commitEmoji(it) }
+                    stopEmojiSearch()
+                }
+                KeyType.EMOJI -> { stopEmojiSearch(); showEmojiPanel() }
+                KeyType.SHIFT -> handleShift()
+                KeyType.TO_SYMBOLS -> setPage(Page.SYM)
+                KeyType.TO_SYMBOLS2 -> setPage(Page.SYM2)
+                KeyType.TO_ALPHA -> setPage(Page.ALPHA)
+                KeyType.LANG -> nextLanguage()
+            }
+            return
+        }
         when (k.type) {
             KeyType.CHAR, KeyType.TEXT -> onText(k.output)
             KeyType.SPACE -> handleSpace()
@@ -440,6 +523,17 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         val ic = currentInputConnection ?: return
         lastAutoCorrect = null
         if (s.isEmpty()) return
+        emojiQuery?.let { q ->
+            if (s.codePointCount(0, s.length) == 1 && isWordChar(s.codePointAt(0))) {
+                q.append(s.lowercase(Layouts.locale(alphaId)))
+                refreshEmojiSearch()
+            }
+            afterChar()
+            return
+        }
+        clearRestore()
+        chip = null
+        stats.add(Stats.CHARS)
         val cased = applyCase(s)
         val cp = s.codePointAt(0)
         val single = s.codePointCount(0, s.length) == 1
@@ -491,6 +585,14 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
             ic.commitText(s, 1)
         }
         justPicked = false
+        if (s == "=") {
+            // Satır içi hesap makinesi: "125*4=" → öneri olarak "500"
+            val b = ic.getTextBeforeCursor(80, 0)?.toString()
+            if (b != null && b.endsWith("=")) {
+                val r = Calc.trailingExpression(b.dropLast(1))?.let { Calc.compute(it) }
+                if (r != null) chip = Chip(CHIP_CALC, "= $r", r)
+            }
+        }
         afterChar()
         if (composing.isEmpty()) updateSuggestions()
     }
@@ -545,6 +647,8 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
     private fun handleSpace() {
         val ic = currentInputConnection ?: return
         val now = SystemClock.uptimeMillis()
+        clearRestore()
+        chip = null
         if (fontStyle != 0) {
             ic.commitText(" ", 1)
             return
@@ -589,6 +693,8 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
 
     private fun handleEnter() {
         val ic = currentInputConnection ?: return
+        clearRestore()
+        chip = null
         commitComposing(false)
         lastAutoCorrect = null
         justPicked = false
@@ -615,6 +721,10 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
 
     private fun handleDelete(count: Int) {
         val ic = currentInputConnection ?: return
+        emojiQuery?.let { q ->
+            if (q.isEmpty()) stopEmojiSearch() else { q.setLength(q.length - 1); refreshEmojiSearch() }
+            return
+        }
         justPicked = false
         val lac = lastAutoCorrect
         lastAutoCorrect = null
@@ -635,6 +745,7 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         }
         if (composing.isNotEmpty()) {
             if (composingFromGlide) {
+                noteDeleted(composing.toString())
                 composing.clear()
                 composingFromGlide = false
                 ic.commitText("", 1)
@@ -643,6 +754,7 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
                 return
             }
             val cp = composing.codePointBefore(composing.length)
+            noteDeleted(composing.substring(composing.length - Character.charCount(cp)))
             composing.setLength(composing.length - Character.charCount(cp))
             if (composing.isEmpty()) ic.commitText("", 1) else ic.setComposingText(composing, 1)
             updateSuggestions()
@@ -650,6 +762,7 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
             return
         }
         if (selStart >= 0 && selStart != selEnd) {
+            noteDeleted(ic.getSelectedText(0)?.toString() ?: "")
             ic.commitText("", 1)
             return
         }
@@ -658,7 +771,9 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
             sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
             return
         }
-        ic.deleteSurroundingText(lastGraphemeLength(before), 0)
+        val gl = lastGraphemeLength(before)
+        noteDeleted(before.takeLast(gl))
+        ic.deleteSurroundingText(gl, 0)
         if (count == 0) tryRecompose()
         updateShift()
         if (composing.isEmpty()) updateSuggestions()
@@ -693,7 +808,9 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
 
     fun deleteWordBack() {
         val ic = currentInputConnection ?: return
+        if (emojiQuery != null) { handleDelete(0); return }
         if (composing.isNotEmpty()) {
+            noteDeleted(composing.toString())
             composing.clear()
             composingFromGlide = false
             ic.commitText("", 1)
@@ -701,6 +818,7 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
             return
         }
         if (selStart >= 0 && selStart != selEnd) {
+            noteDeleted(ic.getSelectedText(0)?.toString() ?: "")
             ic.commitText("", 1)
             return
         }
@@ -712,7 +830,9 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         var i = b.length
         while (i > 0 && b[i - 1].isWhitespace()) i--
         if (i > 0 && !b[i - 1].isLetterOrDigit()) i-- else while (i > 0 && b[i - 1].isLetterOrDigit()) i--
-        ic.deleteSurroundingText((b.length - i).coerceAtLeast(1), 0)
+        val n = (b.length - i).coerceAtLeast(1)
+        noteDeleted(b.takeLast(n))
+        ic.deleteSurroundingText(n, 0)
         updateShift()
         updateSuggestions()
     }
@@ -748,6 +868,8 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         val prev = prevWord()
         ic.commitText(out, 1)
         learn(out, prev, false)
+        stats.word()
+        if (out != typed && autocorrect) stats.add(Stats.AUTOCORRECT)
         composing.clear()
         composingFromGlide = false
         current = null
@@ -823,9 +945,9 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
 
     private fun showPredictions() {
         val s = strip ?: return
-        val chip = clipChip
-        if (chip != null) {
-            s.showClipChip(chip)
+        val c = chip
+        if (c != null) {
+            s.showChip(c.label, c.value)
             return
         }
         if (!prefs.nextWord || !useComposing()) {
@@ -843,19 +965,45 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
 
     fun pickSuggestion(word: String) {
         val ic = currentInputConnection ?: return
-        val chip = clipChip
-        if (chip != null && composing.isEmpty() && word == chip) {
-            clipChip = null
-            ic.commitText(chip, 1)
+        val c = chip
+        if (c != null && composing.isEmpty() && word == c.value) {
+            chip = null
+            when (c.kind) {
+                CHIP_WHEEL -> {
+                    showWheelFor(c.value, "Seçili metinden")
+                    return
+                }
+                CHIP_CALC -> { ic.commitText(c.value, 1); stats.add(Stats.CALC) }
+                else -> ic.commitText(c.value, 1)
+            }
+            markEdit()
             updateSuggestions()
             return
         }
-        clipChip = null
+        chip = null
+        clearRestore()
+        val tw = tapWord
+        if (tw != null && composing.isEmpty()) {
+            // Dokunulan kelimeyi seçilen öneriyle değiştir
+            ic.beginBatchEdit()
+            ic.setComposingRegion(tw.first, tw.second)
+            ic.commitText(word, 1)
+            ic.endBatchEdit()
+            learn(word, null, true)
+            stats.add(Stats.PICKS)
+            markEdit()
+            updateShift()
+            updateSuggestions()
+            return
+        }
+        markEdit()
+        stats.add(Stats.PICKS)
         lastAutoCorrect = null
         val prev = prevWord()
         if (composing.isNotEmpty()) {
             ic.commitText(word, 1)
             if (!isEmoji(word)) learn(word, prev, true)
+            if (isEmoji(word)) stats.add(Stats.EMOJI) else stats.word()
             composing.clear()
             composingFromGlide = false
             current = null
@@ -886,7 +1034,10 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         val prevBefore = prevWord()
         val res = GlideDecoder.decode(pts, kv.letterCenters(), kv.unitW, d, if (composing.isEmpty()) prevBefore else null)
         if (res.isEmpty()) return
-        clipChip = null
+        chip = null
+        clearRestore()
+        markEdit()
+        stats.add(Stats.GLIDE)
         if (composing.isNotEmpty()) commitComposing(false)
         val b = ic.getTextBeforeCursor(1, 0)?.toString()
         if (!b.isNullOrEmpty() && !b[0].isWhitespace() && b[0] !in "([{\"'«“‘/@#") ic.commitText(" ", 1)
@@ -941,13 +1092,17 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
             if (i > 0 && !swipeText[i - 1].isLetterOrDigit()) i-- else while (i > 0 && swipeText[i - 1].isLetterOrDigit()) i--
         }
         val len = swipeText.length - i
+        swipeLen = len
         ic.setSelection(swipeAnchor - len, swipeAnchor)
         keyFeedback(null)
     }
 
     fun endDeleteSwipe() {
         val ic = currentInputConnection
-        if (inDeleteSwipe && swipeN > 0) ic?.commitText("", 1)
+        if (inDeleteSwipe && swipeN > 0) {
+            noteDeleted(swipeText.takeLast(swipeLen))
+            ic?.commitText("", 1)
+        }
         inDeleteSwipe = false
         swipeN = 0
         updateShift()
@@ -1001,11 +1156,162 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
     fun showClipboardPanel() = theme?.let { showPanel(Panels.clipboard(this, it, clip)) }
     fun showEditPanel() = theme?.let { showPanel(Panels.edit(this, it)) }
     fun showFontPanel() = theme?.let { showPanel(Panels.fonts(this, it)) }
+    fun showCalcPanel() = theme?.let { showPanel(Panels.calculator(this, it)) }
+
+    /** Seçili metin → kopyalanan metin → yazılan satır sırasıyla seçenek arayıp çarkı açar. */
+    fun showWheelPanel() {
+        val ic = currentInputConnection
+        val sel = ic?.getSelectedText(0)?.toString()
+        var opts = WheelOptions.parse(sel)
+        var note = "Seçili metinden"
+        if (opts.size < 2) {
+            opts = WheelOptions.parse(latestClipText())
+            note = "Kopyalanan metinden"
+        }
+        if (opts.size < 2) {
+            val line = (ic?.getTextBeforeCursor(300, 0)?.toString() ?: "").substringAfterLast('\n')
+            opts = WheelOptions.parse(line)
+            note = "Yazdığınız metinden"
+        }
+        if (opts.size < 2) {
+            opts = listOf("Evet", "Hayır")
+            note = "Seçenek bulunamadı. Seçenekleri virgülle, \"veya\" ile ya da alt alta yazıp seçin veya kopyalayın."
+        }
+        theme?.let { showPanel(Panels.wheel(this, it, opts, note)) }
+    }
+
+    private fun showWheelFor(text: String, note: String) {
+        val opts = WheelOptions.parse(text)
+        if (opts.size < 2) return showWheelPanel()
+        theme?.let { showPanel(Panels.wheel(this, it, opts, note)) }
+    }
+
+    private fun latestClipText(): String? {
+        try {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val c = cm.primaryClip
+            if (c != null && c.itemCount > 0) c.getItemAt(0).coerceToText(this)?.toString()?.let { if (it.isNotBlank()) return it }
+        } catch (_: Exception) {
+        }
+        return clip.items.firstOrNull()?.text
+    }
+
+    fun onWheelSpun() = stats.add(Stats.WHEEL)
+
+    /** Panelden (hesap makinesi, çark) metne ekleme; seçimi silmeden sonuna ekler. */
+    fun insertFromPanel(text: String, statKey: String?) {
+        val ic = currentInputConnection ?: return
+        commitComposing(false)
+        if (selStart >= 0 && selStart != selEnd) ic.setSelection(selEnd, selEnd)
+        val b = ic.getTextBeforeCursor(1, 0)?.toString()
+        ic.commitText(if (!b.isNullOrEmpty() && !b[0].isWhitespace()) " $text" else text, 1)
+        statKey?.let { stats.add(it) }
+        markEdit()
+        closePanel()
+        updateShift()
+        updateSuggestions()
+    }
+
+    // ====================================================================== emoji arama
+
+    fun startEmojiSearch() {
+        closePanel()
+        commitComposing(false)
+        if (emojiSearch == null) {
+            val flags = EmojiData.categories.flatMap { it.items }.filter { EmojiSearch.countryCode(it) != null }
+            emojiSearch = EmojiSearch({ assets.open("emoji_kw.txt") }, flags)
+        }
+        emojiQuery = StringBuilder()
+        if (page != Page.ALPHA) setPage(Page.ALPHA)
+        refreshEmojiSearch()
+    }
+
+    private fun refreshEmojiSearch() {
+        val q = emojiQuery ?: return
+        val res = if (q.isBlank()) prefs.recentEmoji.take(20) else emojiSearch?.search(q.toString()) ?: emptyList()
+        strip?.showEmojiSearch(q.toString(), res)
+    }
+
+    fun stopEmojiSearch() {
+        emojiQuery = null
+        strip?.hideEmojiSearch()
+        updateShift()
+        updateSuggestions()
+    }
+
+    // ====================================================================== silineni geri getir / dokunma
+
+    private fun markEdit() {
+        lastEdit = SystemClock.uptimeMillis()
+        tapWord = null
+    }
+
+    private fun noteDeleted(text: String) {
+        if (text.isEmpty()) return
+        if (!deleting) deleted.setLength(0)
+        deleted.insert(0, text)
+        if (deleted.length > 5000) deleted.setLength(5000)
+        deleting = true
+        val t = deleted.toString()
+        strip?.setRestore(if (t.length >= 2 && t.any { it.isLetterOrDigit() }) t else null)
+    }
+
+    private fun clearRestore() {
+        if (deleted.isEmpty() && !deleting) return
+        deleted.setLength(0)
+        deleting = false
+        strip?.setRestore(null)
+    }
+
+    fun restoreDeleted() {
+        val ic = currentInputConnection ?: return
+        val t = deleted.toString()
+        if (t.isEmpty()) return
+        commitComposing(false)
+        ic.commitText(t, 1)
+        clearRestore()
+        stats.add(Stats.RESTORE)
+        markEdit()
+        updateShift()
+        updateSuggestions()
+    }
+
+    /** İmleç bir kelimenin içine/sonuna taşındıysa o kelime için düzeltmeleri gösterir. */
+    private fun checkTapWord(pos: Int) {
+        tapWord = null
+        if (!useComposing() || panel != null || emojiQuery != null || pos < 0) return
+        val ic = currentInputConnection ?: return
+        val d = dict() ?: return
+        val b = ic.getTextBeforeCursor(40, 0)?.toString() ?: return
+        val a = ic.getTextAfterCursor(40, 0)?.toString() ?: ""
+        var i = b.length
+        while (i > 0 && b[i - 1].isLetter()) i--
+        var j = 0
+        while (j < a.length && a[j].isLetter()) j++
+        val left = b.substring(i)
+        val right = a.substring(0, j)
+        val w = left + right
+        if (w.length < 2 || left.isEmpty()) return
+        val res = d.suggest(w, null, true)
+        val cands = ArrayList<String>()
+        res.autoCorrect?.let { cands += matchCase(w, it) }
+        for (x in res.words) {
+            val c = matchCase(w, x)
+            if (c != w && c !in cands) cands += c
+            if (cands.size >= 3) break
+        }
+        if (cands.isEmpty()) return
+        tapWord = Triple(pos - left.length, pos + right.length, w)
+        strip?.setWords(cands, res.autoCorrect != null)
+    }
 
     fun commitEmoji(e: String) {
         val ic = currentInputConnection ?: return
         commitComposing(false)
         ic.commitText(e, 1)
+        markEdit()
+        clearRestore()
+        stats.add(Stats.EMOJI)
         val rec = prefs.recentEmoji.toMutableList()
         rec.remove(e)
         rec.add(0, e)
@@ -1080,6 +1386,12 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
 
     fun onVoiceStatus(s: String) {
         strip?.showMessage(s)
+    }
+
+    companion object {
+        private const val CHIP_CLIP = 0
+        private const val CHIP_CALC = 1
+        private const val CHIP_WHEEL = 2
     }
 
     fun onVoiceDone(text: String?, error: String?) {

@@ -114,11 +114,12 @@ class Prefs(context: Context) {
         const val SHORTCUTS = "shortcuts"
         const val CLIPS = "clips"
         const val DICT_RESET = "dict_reset"
+        const val DICT_RELOAD = "dict_reload"
 
         /** Bu anahtarlar değişince klavye görünümü yeniden kurulur. */
         val VIEW_KEYS = setOf(
             LAYOUTS, THEME, HEIGHT, RADIUS, GAP, BORDERS, NUMROW, HINTS, PREVIEW, FONT_SCALE,
-            EMOJI_KEY, GLIDE, GLIDE_TRAIL, SPACE_CURSOR, DEL_SWIPE, LONGPRESS, ONEHAND
+            EMOJI_KEY, GLIDE, GLIDE_TRAIL, SPACE_CURSOR, DEL_SWIPE, LONGPRESS, ONEHAND, Themes.CUSTOM_VER
         )
 
         val DEFAULT_SHORTCUTS = mapOf(
