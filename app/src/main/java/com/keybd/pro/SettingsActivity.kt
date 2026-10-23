@@ -76,6 +76,12 @@ class SettingsActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refreshStatus()
+        // Kurulum izni verilirken Android uygulamayı yeniden başlatır; güncellemeye kaldığı yerden devam et.
+        if (prefs.sp.getBoolean(PENDING_UPDATE, false) &&
+            (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls())) {
+            prefs.sp.edit().putBoolean(PENDING_UPDATE, false).apply()
+            checkUpdate(silent = false, install = true)
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -417,7 +423,7 @@ class SettingsActivity : Activity() {
 
     // ------------------------------------------------------------------ güncelleme
 
-    private fun checkUpdate(silent: Boolean) {
+    private fun checkUpdate(silent: Boolean, install: Boolean = false) {
         if (checking) return
         checking = true
         updateStatus?.text = "Denetleniyor…"
@@ -443,7 +449,7 @@ class SettingsActivity : Activity() {
                     }
                     else -> {
                         updateStatus?.text = "Yeni sürüm var: ${r.name}"
-                        offerUpdate(r)
+                        if (install) startUpdate(r) else offerUpdate(r)
                     }
                 }
             }
@@ -451,7 +457,10 @@ class SettingsActivity : Activity() {
     }
 
     private fun offerUpdate(r: Updater.Release) {
-        val notes = r.notes.ifBlank { "Hata düzeltmeleri ve iyileştirmeler." }.take(1500)
+        val notes = r.notes.lines()
+            .filterNot { it.startsWith("Co-Authored-By:") || it.startsWith("Claude-Session:") }
+            .joinToString("\n").trim()
+            .ifBlank { "Hata düzeltmeleri ve iyileştirmeler." }.take(1500)
         AlertDialog.Builder(this)
             .setTitle("Yeni sürüm: ${r.name}")
             .setMessage("Kullandığınız: ${BuildConfig.VERSION_NAME}\n\n$notes\n\nAyarlarınız ve öğrenilen kelimeler korunur.")
@@ -464,8 +473,9 @@ class SettingsActivity : Activity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
             AlertDialog.Builder(this)
                 .setTitle("İzin gerekli")
-                .setMessage("Keybd'nin kendini güncelleyebilmesi için açılan ekranda \"Bu kaynaktan izin ver\" seçeneğini açın, sonra geri dönüp tekrar Güncelle'ye basın.")
+                .setMessage("Keybd'nin kendini güncelleyebilmesi için açılan ekranda \"Bu kaynaktan izin ver\" seçeneğini açıp geri dönün; güncelleme kendiliğinden devam eder. (Bu izin yalnızca bir kez istenir.)")
                 .setPositiveButton("Ayarları aç") { _, _ ->
+                    prefs.sp.edit().putBoolean(PENDING_UPDATE, true).apply()
                     startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:$packageName")))
                 }
                 .setNegativeButton("Vazgeç", null)
@@ -570,5 +580,6 @@ class SettingsActivity : Activity() {
         const val EXTRA_MIC = "mic"
         const val AUTO_UPDATE = "auto_update"
         const val LAST_CHECK = "last_update_check"
+        const val PENDING_UPDATE = "pending_update"
     }
 }
