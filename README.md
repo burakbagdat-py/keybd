@@ -44,7 +44,10 @@ test edip derler, sürüm numarasını artırır (1.N) ve
 - **Sonraki kelime tahmini** — en çok yazdığınız kelime dizilerini öğrenir
 - **Kaydırarak yazma (glide typing)** — parmağınızı kaldırmadan harflerin üzerinden geçin
 - **Emoji önerileri** — `kalp` yazınca ❤️, `haha` yazınca 😂
-- **Kısayollar / metin genişletme** — `slm` → `selam`, kendi kısayollarınızı ekleyin
+- **Kısayollar / metin genişletme** — `slm` → `selam`, kendi kısayollarınızı ekleyin;
+  `{tarih}`, `{saat}`, `{gün}`, `{yarın}` değişkenleri (`trh` → bugünün tarihi)
+- **Büyük/küçük harf dönüştürme** — metni seçip Shift'e bas: küçük → Baş Harfler → BÜYÜK
+- **E-posta tamamlama** — `ali@g` yazınca `@gmail.com`, `@hotmail.com`… önerilir
 - Otomatik büyük harf, **çift boşluk = nokta**, akıllı noktalama
 - Silerek bir kelimeye dönünce o kelime için öneriler yeniden açılır
 - **Silineni geri getirme** — yanlışlıkla sildiğin metin şeritte **↶** düğmesiyle tek dokunuşta geri gelir
@@ -54,6 +57,13 @@ test edip derler, sürüm numarasını artırır (1.N) ve
   (`+ − × ÷ % ^` ve parantez; `1,5+2` gibi virgüllü sayılar)
 - **Canlı matematik** — `=` yazmana gerek yok: `1x1`, `12/4`, `7-2` yazarken sonuç şeritte belirir
   (tarih ve telefon numaraları gibi girdiler hesaplanmaz)
+
+### Ergonomi
+- **Yukarı kaydırma** — harfe dokunup yukarı kaydırınca köşedeki rakam/simge yazılır (uzun basmaya gerek yok)
+- **Dokunma düzeltmesi** — parmağın hedefin biraz altına dokunma eğilimini telafi eder
+- **Alt boşluk** — klavyeyi ekranın alt kenarından yukarı alarak başparmakla daha rahat yazma
+- **Sıfırlama** — boyutları, görünümü ya da tüm ayarları tek dokunuşla varsayılana döndür
+  (arşiv, pano, kısayollar ve öğrenilen kelimeler korunur)
 
 ### Hareketler
 - **Boşluk tuşunda kaydırma** → imleci sağa/sola taşı
@@ -89,8 +99,10 @@ test edip derler, sürüm numarasını artırır (1.N) ve
 ### Görünüm
 - 12 tema: **Material You** (Android 12+ duvar kağıdı renkleri), Koyu, Açık, AMOLED Siyah,
   Okyanus, Gün Batımı, Orman, Pembe, Gece Moru, Retro, **Venom Simbiyot** ve **Özel temam**
-- 🖤 **Venom Simbiyot** — siyah-beyaz, organik kenarlı ve "damlayan" tuşlar, arka planda
-  dokunaçlar, her dokunuşta saçılan simbiyot dikenleri
+- 🖤 **Venom Simbiyot** — canlı, akıcı simbiyot klavye: arka planda dalgalanan dokunaçlar,
+  bastığın noktadan tuşa yayılan beyaz sıvı, komşu tuşlara uzanıp bırakınca kopan simbiyot
+  iplikleri, organik dikenler ve saçılan damlalar, ıslak parlaklık, simbiyot glide izi,
+  "şlap" hissi veren çift darbeli titreşim ve ıslak/organik Venom ses paketi
 - 🎨 **Kendi temanı oluştur** — renkleri seç (hazır takımlar, renk tekerleği, HEX), istersen
   arka plana kendi fotoğrafını koy; tuş saydamlığı ve karartma ayarı, canlı önizleme
 - Ayarlanabilir klavye yüksekliği **ve genişliği** (tuş boyu/eni), yazı boyutu, tuş köşe yuvarlaklığı ve aralığı
@@ -110,9 +122,11 @@ test edip derler, sürüm numarasını artırır (1.N) ve
 
 ### Geri bildirim
 - Ayarlanabilir titreşim süresi, tuş sesi ve ses düzeyi
-- 🔊 **Ses paketleri** (seçerken dinlenebilir): Mekanik (tıkırtılı mavi switch), Mekanik (tok/derin),
-  Daktilo (satır sonunda zil 🔔), Yumuşak, Baloncuk, Piyano notaları ve **Komik 🤡**
-  (boing, ördek, düdük, korna… her tuşta farklı). Sesler tamamen sentezlenmiştir (`tools/gen_sounds.py`)
+- 🔊 **14 ses paketi** (seçerken dinlenebilir, 44.1 kHz): Mekanik Krem (tok, lineer), Mekanik
+  Clicky (Box Jade), Laptop, Telefon tıkı, Ahşap, Daktilo (zilli satır başı 🔔), Yumuşak, Baloncuk,
+  Yağmur damlası, Piyano, Retro 8-bit, Venom 🖤 ve Komik 🤡. Mekanik sesler fiziksel olarak
+  modellenir (kapak darbesi, gövde rezonansları, dibe vurma, yay, geri kalkma, oda yankısı);
+  hepsi `tools/gen_sounds.py` ile sentezlenir
 - Ayarlanabilir uzun basma süresi
 
 ## 🛠️ Kaynak koddan derleme
@@ -145,6 +159,7 @@ derler ve yeni bir sürüm olarak yayınlar; uygulamadaki güncelleyici bu sür�
 | `ThemeEditor.kt` | Kendi temanı oluşturma ve renk seçici |
 | `Stats.kt` / `Backup.kt` | Yazma istatistikleri, yedekleme ve geri yükleme |
 | `SoundPack.kt` | Tuş sesi paketleri |
+| `SymbioteFx.kt` | Venom Simbiyot teması animasyonları |
 | `Archive.kt` / `Tools.kt` | Arşiv ve araç çubuğu düğmeleri |
 | `tools/gen_sounds.py`, `tools/gen_emoji.py` | Ses ve emoji varlıklarını üreten betikler |
 

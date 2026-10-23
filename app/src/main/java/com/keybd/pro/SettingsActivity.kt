@@ -307,14 +307,16 @@ class SettingsActivity : Activity() {
             themeEditor = ed
             ed.show()
         }
-        action("🖤 Venom Simbiyot temasını uygula", "Siyah-beyaz, dokunaçlı, canlı simbiyot klavye") {
-            prefs.sp.edit().putString(Prefs.THEME, "venom").apply()
+        action("🖤 Venom Simbiyot temasını uygula", "Canlı dokunaçlar, sıvı gibi yayılan tuşlar, simbiyot iplikleri, ıslak sesler ve titreşim") {
+            prefs.sp.edit().putString(Prefs.THEME, "venom").putString(Prefs.SOUND_PACK, "venom").putBoolean(Prefs.SOUND, true).apply()
             ((themeRow.getChildAt(0) as LinearLayout).getChildAt(1) as TextView).text = "Venom Simbiyot"
-            toast("Simbiyot bağlandı 🕷️")
+            toast("Simbiyot bağlandı 🕷️ Venom sesleri de açıldı (Ses ayarlarından değiştirebilirsiniz)")
         }
         switch("Kompakt mod", "Daha alçak tuşlar, dar aralıklar ve ince üst menü", Prefs.COMPACT, false)
         slider("Klavye yüksekliği (tuş boyu)", Prefs.HEIGHT, 60, 150, 100) { "%$it" }
         slider("Klavye genişliği (tuş eni)", Prefs.KB_WIDTH, 50, 100, 100) { "%$it" }
+        slider("Alt boşluk (klavyeyi yukarı al)", Prefs.BOTTOM_PAD, 0, 48, 0) { "${it}dp" }
+        action("↺ Boyutları varsayılana döndür", "Yükseklik, genişlik, yazı, köşe, aralık, menü ve tek el ayarları") { resetKeys(Prefs.SIZE_KEYS, "Boyutlar sıfırlandı") }
         slider("Yazı boyutu", Prefs.FONT_SCALE, 70, 140, 100) { "%$it" }
         slider("Tuş köşe yuvarlaklığı", Prefs.RADIUS, 0, 24, 8) { "${it}dp" }
         slider("Tuş aralığı", Prefs.GAP, 0, 10, 4) { "${it}dp" }
@@ -373,6 +375,8 @@ class SettingsActivity : Activity() {
         switch("Boşlukta imleç kontrolü", "Boşluk tuşunda sağa-sola kaydırarak imleci taşıyın", Prefs.SPACE_CURSOR, true)
         switch("Silme tuşunda kaydırma", "⌫ tuşundan sola kaydırarak kelimeleri seçip silin", Prefs.DEL_SWIPE, true)
         slider("Uzun basma süresi", Prefs.LONGPRESS, 150, 700, 300) { "${it} ms" }
+        switch("Yukarı kaydırınca rakam/simge", "Harfe dokunup yukarı kaydırın: uzun basmadan köşedeki rakamı yazar", Prefs.SWIPE_UP, true)
+        switch("Dokunma düzeltmesi", "Parmaklar hedefin biraz altına dokunur; bunu telafi ederek yanlış tuşa basmayı azaltır", Prefs.TOUCH_FIX, true)
 
         // Geri bildirim
         header("SES VE TİTREŞİM")
@@ -449,6 +453,25 @@ class SettingsActivity : Activity() {
         action("Mikrofon izni", "Sesli yazma (🎤) için gerekli") { requestMic() }
 
         // Hakkında
+        header("SIFIRLAMA")
+        action("↺ Boyutları sıfırla", "Klavye çok büyük/küçük olduysa: tüm boyut ayarlarını varsayılana döndürür") {
+            resetKeys(Prefs.SIZE_KEYS, "Boyutlar sıfırlandı")
+        }
+        action("↺ Görünümü sıfırla", "Boyutlar + tema, tuş görünümü ve özel tema renkleri") {
+            resetKeys(Prefs.LOOK_KEYS, "Görünüm sıfırlandı")
+        }
+        action("↺ Tüm ayarları sıfırla", "Arşiv, pano, kısayollar, öğrenilen kelimeler ve istatistikler korunur") {
+            AlertDialog.Builder(this).setTitle("Tüm ayarlar sıfırlansın mı?")
+                .setMessage("Tüm ayarlar fabrika değerlerine döner.\n\nKorunanlar: arşiv, pano geçmişi, kısayollar, son emojiler, öğrenilen kelimeler ve istatistikler.")
+                .setPositiveButton("Sıfırla") { _, _ ->
+                    val e = prefs.sp.edit()
+                    for (k in prefs.sp.all.keys) if (k !in Prefs.KEEP_ON_RESET && !k.startsWith("st_")) e.remove(k)
+                    e.putLong(Themes.CUSTOM_VER, System.currentTimeMillis()).apply()
+                    toast("Tüm ayarlar sıfırlandı")
+                    recreate()
+                }.setNegativeButton("Vazgeç", null).show()
+        }
+
         header("İPUÇLARI")
         add(TextView(this).apply {
             text = """
@@ -460,6 +483,10 @@ class SettingsActivity : Activity() {
 • Otomatik düzeltmeden hemen sonra ⌫: düzeltmeyi geri al
 • ⋯ menüsü: emoji, pano, metin düzenleme, yazı stilleri, tek el modu, gizli mod, tema
 • ?123 veya ☺ tuşuna uzun basın: bu ayarlar
+• Harfe dokunup yukarı kaydırın: rakam/simge
+• Metni seçip Shift'e basın: küçük → Baş Harfler → BÜYÜK
+• Kısayollarda {tarih} {saat} {gün} {yarın} kullanın (trh → bugünün tarihi)
+• E-posta yazarken @ sonrası gmail.com, hotmail.com… önerilir
             """.trimIndent()
             textSize = 14f
             setTextColor(textColor)
@@ -499,6 +526,19 @@ class SettingsActivity : Activity() {
     }
 
     /** Kurulum sihirbazı: duruma göre sıradaki adımı öne çıkarır, gerekirse seçiciyi kendisi açar. */
+    /** Verilen ayarları siler (varsayılana döner) ve ekranı yeniler. */
+    private fun resetKeys(keys: List<String>, msg: String) {
+        AlertDialog.Builder(this).setTitle("Sıfırlansın mı?")
+            .setMessage("Seçilen ayarlar varsayılan değerlerine dönecek.")
+            .setPositiveButton("Sıfırla") { _, _ ->
+                val e = prefs.sp.edit()
+                for (k in keys) e.remove(k)
+                e.putLong(Themes.CUSTOM_VER, System.currentTimeMillis()).apply()
+                toast("$msg ✓")
+                recreate()
+            }.setNegativeButton("Vazgeç", null).show()
+    }
+
     private fun refreshStatus() {
         if (!::status1.isInitialized) return
         val enabled = isEnabled()
@@ -637,6 +677,12 @@ class SettingsActivity : Activity() {
                 listBox.addView(r)
             }
         }
+        container.addView(TextView(this).apply {
+            text = "Açılımda {tarih}, {saat}, {gün}, {yarın} kullanabilirsiniz."
+            textSize = 13f
+            setTextColor(subColor)
+            setPadding(0, 0, 0, dpi(6f))
+        })
         val key = EditText(this).apply { hint = "Kısayol (örn: slm)"; setSingleLine() }
         val value = EditText(this).apply { hint = "Açılımı (örn: selam)" }
         val addBtn = button("Ekle", true) {

@@ -254,10 +254,11 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         c.addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         root.addView(c, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
+        root.setPadding(0, 0, 0, dpi(prefs.bottomPad.toFloat()))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             root.setOnApplyWindowInsetsListener { v, insets ->
                 val nb = insets.getInsets(WindowInsets.Type.navigationBars())
-                v.setPadding(nb.left, 0, nb.right, nb.bottom)
+                v.setPadding(nb.left, 0, nb.right, nb.bottom + dpi(prefs.bottomPad.toFloat()))
                 insets
             }
         }
@@ -300,6 +301,8 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         kv.spaceCursor = prefs.spaceCursor
         kv.deleteSwipe = prefs.deleteSwipe
         kv.longPressMs = prefs.longPressMs.toLong()
+        kv.swipeUp = prefs.swipeUp
+        kv.touchFix = prefs.touchFix
         kv.fontScale = prefs.fontScale / 100f
     }
 
@@ -511,7 +514,13 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         if (prefs.vibrate) {
             try {
                 val ms = prefs.vibrateMs.toLong().coerceAtLeast(1)
-                vibrator?.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
+                val v = vibrator
+                if (theme?.style == KbTheme.STYLE_SYMBIOTE && v?.hasAmplitudeControl() == true) {
+                    // Venom: yumuşak başlayıp sertleşen çift darbe ("şlap" hissi)
+                    v.vibrate(VibrationEffect.createWaveform(longArrayOf(0, ms / 2 + 2, 18, ms + 4), intArrayOf(0, 70, 0, 255), -1))
+                } else {
+                    v?.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
+                }
             } catch (_: Exception) {
             }
         }
@@ -668,6 +677,7 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
     }
 
     private fun handleShift() {
+        if (selStart >= 0 && selEnd > selStart && capture == null && cycleSelectionCase()) return
         val now = SystemClock.uptimeMillis()
         shift = when {
             shift == 2 -> 0
@@ -679,6 +689,29 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         lastShiftTap = now
         kbView?.shiftState = shift
         if (composing.isNotEmpty()) updateSuggestions()
+    }
+
+    /** Seçili metin: küçük → Baş Harfler → BÜYÜK → küçük. */
+    private fun cycleSelectionCase(): Boolean {
+        val ic = currentInputConnection ?: return false
+        val sel = ic.getSelectedText(0)?.toString() ?: return false
+        if (sel.isBlank() || sel.length > 5000) return false
+        val loc = Layouts.locale(alphaId)
+        val lower = sel.lowercase(loc)
+        val upper = sel.uppercase(loc)
+        val title = lower.split(Regex("(?<=\\s)")).joinToString("") { w -> w.replaceFirstChar { it.titlecase(loc) } }
+        val out = when (sel) {
+            lower -> title
+            title -> upper
+            else -> lower
+        }
+        val start = selStart
+        ic.beginBatchEdit()
+        ic.commitText(out, 1)
+        ic.setSelection(start, start + out.length)
+        ic.endBatchEdit()
+        keyFeedback(null)
+        return true
     }
 
     fun setCapsLock() {
@@ -932,7 +965,7 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         val typed = composing.toString()
         var out = typed
         if (autocorrect) {
-            val sc = prefs.shortcuts[typed.lowercase()]
+            val sc = prefs.shortcuts[typed.lowercase()]?.let { expandTokens(it) }
             val auto = currentAuto
             if (sc != null) out = sc
             else if (auto != null && allowAutocorrect && prefs.autoCorrect && typed.lowercase() !in ignoreAutocorrect) out = auto
@@ -947,6 +980,34 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         current = null
         currentAuto = null
         return out
+    }
+
+    /** Kısayollardaki değişkenler: {tarih} {saat} {gün} {yarın} */
+    private fun expandTokens(s: String): String {
+        if (!s.contains('{')) return s
+        val tr = java.util.Locale("tr", "TR")
+        val now = java.util.Date()
+        fun f(p: String, d: java.util.Date = now) = java.text.SimpleDateFormat(p, tr).format(d)
+        return s.replace("{tarih}", f("dd.MM.yyyy"))
+            .replace("{saat}", f("HH:mm"))
+            .replace("{gün}", f("EEEE"))
+            .replace("{yarın}", f("dd.MM.yyyy", java.util.Date(now.time + 86_400_000L)))
+    }
+
+    // E-posta tamamlama: "ali@g" → "@gmail.com"
+    private val emailDomains = listOf("gmail.com", "hotmail.com", "outlook.com", "icloud.com", "yahoo.com", "yandex.com", "windowslive.com", "msn.com", "proton.me")
+    private val emailRe = Regex("[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]*)$")
+    private var emailPick: Map<String, String> = emptyMap()
+
+    private fun emailSuggestions(): List<String>? {
+        if (isPassword || capture != null) return null
+        val b = currentInputConnection?.getTextBeforeCursor(64, 0)?.toString() ?: return null
+        val m = emailRe.find(b) ?: return null
+        val typed = m.groupValues[1].lowercase()
+        val cands = emailDomains.filter { it.startsWith(typed) && it != typed }.take(3)
+        if (cands.isEmpty()) return null
+        emailPick = cands.associate { "@$it" to it.substring(typed.length) }
+        return cands.map { "@$it" }
     }
 
     private fun learn(word: String, prev: String?, force: Boolean) {
@@ -973,6 +1034,11 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
 
     private fun updateSuggestions() {
         val s = strip ?: return
+        emailPick = emptyMap()
+        emailSuggestions()?.let { es ->
+            s.setWords(listOf(es[0], es.getOrNull(1), es.getOrNull(2)), true)
+            return
+        }
         val live = liveCalc()
         if (live != null) {
             chip = Chip(CHIP_CALC, "= $live", "=$live")
@@ -994,7 +1060,7 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
         val res = d?.suggest(typed, prevWord(), allowAc)
         current = res
         currentAuto = res?.autoCorrect?.let { matchCase(typed, it) }
-        val shortcut = prefs.shortcuts[typed.lowercase()]
+        val shortcut = prefs.shortcuts[typed.lowercase()]?.let { expandTokens(it) }
         if (shortcut != null) currentAuto = null
 
         val others = ArrayList<String>()
@@ -1050,6 +1116,14 @@ class KeybdService : InputMethodService(), SharedPreferences.OnSharedPreferenceC
 
     fun pickSuggestion(word: String) {
         val ic = currentInputConnection ?: return
+        emailPick[word]?.let { rest ->
+            commitComposing(false)
+            ic.commitText(rest, 1)
+            emailPick = emptyMap()
+            markEdit()
+            updateSuggestions()
+            return
+        }
         val c = chip
         if (c != null && word == c.value && (composing.isEmpty() || c.kind == CHIP_CALC)) {
             if (composing.isNotEmpty()) commitComposing(false)

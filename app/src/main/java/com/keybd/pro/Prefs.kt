@@ -56,6 +56,9 @@ class Prefs(context: Context) {
     val kbWidth get() = i(KB_WIDTH, 100)
     val stripHeight get() = i(STRIP_HEIGHT, 44)
     val toolbarPos get() = i(TOOLBAR_POS, 0)
+    val swipeUp get() = b(SWIPE_UP, true)
+    val touchFix get() = b(TOUCH_FIX, true)
+    val bottomPad get() = i(BOTTOM_PAD, 0)
 
     var stripCollapsed: Boolean
         get() = b(STRIP_COLLAPSED, false)
@@ -129,6 +132,20 @@ class Prefs(context: Context) {
         const val STRIP_COLLAPSED = "strip_collapsed"
         const val TOOLBAR_POS = "toolbar_pos"
         const val ARCHIVE = "archive"
+        const val SWIPE_UP = "swipe_up"
+        const val TOUCH_FIX = "touch_fix"
+        const val BOTTOM_PAD = "bottom_pad"
+
+        /** "Boyutları sıfırla" ile varsayılana dönen anahtarlar. */
+        val SIZE_KEYS = listOf(HEIGHT, KB_WIDTH, FONT_SCALE, RADIUS, GAP, STRIP_HEIGHT, COMPACT, STRIP_COLLAPSED,
+            TOOLBAR_POS, ONEHAND, BOTTOM_PAD)
+
+        /** "Görünümü sıfırla": boyutlar + tema ve görünüm seçenekleri. */
+        val LOOK_KEYS = SIZE_KEYS + listOf(THEME, BORDERS, HINTS, PREVIEW, EMOJI_KEY, NUMROW,
+            "custom_bg", "custom_key", "custom_fn", "custom_text", "custom_accent", "custom_image", "custom_key_alpha", "custom_dim")
+
+        /** "Tüm ayarları sıfırla" sırasında korunan kullanıcı verileri. */
+        val KEEP_ON_RESET = setOf(ARCHIVE, CLIPS, RECENT_EMOJI, SHORTCUTS, "pending_update", "last_update_check")
         const val DICT_RESET = "dict_reset"
         const val DICT_RELOAD = "dict_reload"
 
@@ -136,7 +153,7 @@ class Prefs(context: Context) {
         val VIEW_KEYS = setOf(
             LAYOUTS, THEME, HEIGHT, RADIUS, GAP, BORDERS, NUMROW, HINTS, PREVIEW, FONT_SCALE,
             EMOJI_KEY, GLIDE, GLIDE_TRAIL, SPACE_CURSOR, DEL_SWIPE, LONGPRESS, ONEHAND, Themes.CUSTOM_VER,
-            COMPACT, KB_WIDTH, STRIP_HEIGHT, STRIP_COLLAPSED, TOOLBAR_POS
+            COMPACT, KB_WIDTH, STRIP_HEIGHT, STRIP_COLLAPSED, TOOLBAR_POS, SWIPE_UP, TOUCH_FIX, BOTTOM_PAD
         )
 
         val DEFAULT_SHORTCUTS = mapOf(
@@ -145,6 +162,8 @@ class Prefs(context: Context) {
             "tşk" to "teşekkürler",
             "tsk" to "teşekkürler",
             "kib" to "kendine iyi bak",
+            "trh" to "{tarih}",
+            "sst" to "{saat}",
             "iyg" to "iyi geceler",
             "brb" to "be right back",
             "omw" to "on my way",

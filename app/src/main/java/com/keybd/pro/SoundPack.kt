@@ -65,7 +65,7 @@ class SoundPack(private val ctx: Context) {
         if (list.isEmpty()) return
         val id = list[Random.nextInt(list.size)]
         // Hafif perde değişimi sesi doğal yapar (piyano notaları hariç)
-        val rate = if (loaded == "piano" || loaded == "funny") 1f else 0.96f + Random.nextFloat() * 0.08f
+        val rate = if (loaded in setOf("piano", "funny", "retro")) 1f else 0.97f + Random.nextFloat() * 0.06f
         p.play(id, volume, volume, 1, 0, rate)
     }
 
@@ -81,13 +81,19 @@ class SoundPack(private val ctx: Context) {
         const val SYSTEM = "system"
         val PACKS = listOf(
             SYSTEM to "Sistem sesi",
-            "mech" to "Mekanik (tıkırtılı, mavi switch)",
-            "thock" to "Mekanik (tok, derin)",
-            "typewriter" to "Daktilo (satır sonunda zil)",
+            "thock" to "Mekanik Krem — tok, lineer ⭐",
+            "mech" to "Mekanik Clicky — tıkırtılı (Box Jade)",
+            "laptop" to "Laptop — makas tuş",
+            "phone" to "Telefon tıkı — kısa, net",
+            "wood" to "Ahşap",
+            "typewriter" to "Daktilo — satır sonunda zil 🔔",
             "soft" to "Yumuşak",
             "bubble" to "Baloncuk",
-            "piano" to "Piyano notaları",
-            "funny" to "Komik 🤡 (boing, ördek, düdük…)",
+            "drop" to "Yağmur damlası 💧",
+            "piano" to "Piyano notaları 🎹",
+            "retro" to "Retro 8-bit 👾",
+            "venom" to "Venom 🖤 — ıslak, organik",
+            "funny" to "Komik 🤡 — boing, ördek, düdük…",
         )
 
         fun name(id: String) = PACKS.firstOrNull { it.first == id }?.second ?: PACKS[0].second
